@@ -3,14 +3,18 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 90;
 
-const SCENES: Record<string, string> = {
-  "marble-kitchen":
-    "Place this product on a clean white marble kitchen counter, soft natural morning light from a window, shallow depth of field, photorealistic lifestyle product photography",
-  "wood-table":
-    "Place this product on a warm wooden table with subtle wood grain, cozy ambient indoor light, slight bokeh in background, photorealistic lifestyle product photography",
-  "outdoor-cafe":
-    "Place this product on an outdoor cafe table with a blurred green plant background, soft golden-hour daylight, photorealistic lifestyle product photography",
+const SCENE_PROMPTS: Record<string, string> = {
+  "white-bg":
+    "Replace the background with a pure bright white seamless studio backdrop. Center the product with a soft realistic shadow beneath it. Even neutral studio lighting.",
+  "lifestyle-scene":
+    "Place the product in a warm natural lifestyle setting with soft daylight, gentle tasteful props, and a softly blurred cozy home interior in the background.",
+  "detail-closeup":
+    "Create a tight close-up macro shot focusing on the product's texture, material, and fine details. Add soft directional studio lighting that emphasizes craftsmanship. Subtle blurred background.",
 };
+
+const SCENES: Record<string, string> = Object.fromEntries(
+  Object.entries(SCENE_PROMPTS).map(([id, p]) => [id, `${p} Keep the product unchanged.`]),
+);
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,24 +36,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unknown scene" }, { status: 400 });
     }
 
-    const res = await fetch(
-      "https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-pro/predictions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          Prefer: "wait",
-        },
-        body: JSON.stringify({
-          input: {
-            input_image: imageDataUrl,
-            prompt,
-            output_format: "jpg",
-          },
-        }),
+    const REPLICATE_URL =
+      "https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-pro/predictions";
+
+    const replicateInput = {
+      input_image: imageDataUrl,
+      prompt,
+      output_format: "jpg",
+    };
+
+    const imgMatch = imageDataUrl.match(/^data:(image\/[a-z+]+);base64,/);
+    const approxBytes = Math.floor(((imageDataUrl.length - (imgMatch?.[0].length ?? 0)) * 3) / 4);
+    console.log("[generate] →", REPLICATE_URL);
+    console.log("[generate] payload:", {
+      ...replicateInput,
+      input_image: `<${imgMatch?.[1] ?? "image"}, ~${(approxBytes / 1024).toFixed(0)}KB>`,
+      prompt_chars: prompt.length,
+      scene,
+    });
+    console.log("[generate] full prompt:\n" + prompt);
+
+    const res = await fetch(REPLICATE_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Prefer: "wait",
       },
-    );
+      body: JSON.stringify({ input: replicateInput }),
+    });
 
     const data = await res.json();
 

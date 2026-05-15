@@ -3,9 +3,9 @@
 import { useRef, useState } from "react";
 
 const SCENES = [
-  { id: "marble-kitchen", label: "Marble Kitchen" },
-  { id: "wood-table", label: "Wood Table" },
-  { id: "outdoor-cafe", label: "Outdoor Cafe" },
+  { id: "white-bg", label: "白底主图" },
+  { id: "lifestyle-scene", label: "场景生活图" },
+  { id: "detail-closeup", label: "细节特写图" },
 ] as const;
 
 type SceneId = (typeof SCENES)[number]["id"];
@@ -19,6 +19,17 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+function isHeic(file: File): boolean {
+  const name = file.name.toLowerCase();
+  const type = file.type.toLowerCase();
+  return (
+    type === "image/heic" ||
+    type === "image/heif" ||
+    name.endsWith(".heic") ||
+    name.endsWith(".heif")
+  );
+}
+
 export default function Home() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -30,13 +41,22 @@ export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   function handleFile(file: File) {
-    if (!file.type.startsWith("image/")) return;
+    if (isHeic(file)) {
+      setError("暂不支持 HEIC 格式。请先把图片转成 JPG 再上传。");
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setError(`不支持的文件类型: ${file.type || "(unknown)"}`);
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
     if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setError(null);
+    setResultUrl(null);
     setPreviewUrl(URL.createObjectURL(file));
     setFileName(file.name);
     setOriginalFile(file);
-    setResultUrl(null);
-    setError(null);
   }
 
   function reset() {
@@ -72,6 +92,26 @@ export default function Home() {
     }
   }
 
+  async function downloadResult() {
+    if (!resultUrl) return;
+    try {
+      const res = await fetch(resultUrl);
+      if (!res.ok) throw new Error("Failed to fetch image");
+      const blob = await res.blob();
+      const ext = (blob.type.split("/")[1] || "jpg").split("+")[0];
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = `product-${scene ?? "image"}-${Date.now()}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "下载失败,请长按图片保存");
+    }
+  }
+
   return (
     <main className="flex min-h-screen flex-col items-center bg-zinc-50 px-4 py-10 dark:bg-black sm:py-16">
       <div className="flex w-full max-w-md flex-col items-center gap-6 text-center">
@@ -87,7 +127,7 @@ export default function Home() {
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -96,14 +136,21 @@ export default function Home() {
         />
 
         {!previewUrl ? (
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            className="w-full rounded-2xl border-2 border-dashed border-zinc-300 bg-white px-6 py-12 text-zinc-600 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
-          >
-            <span className="block text-base font-medium">Tap to upload a product photo</span>
-            <span className="mt-1 block text-xs text-zinc-500">JPG, PNG, or WEBP</span>
-          </button>
+          <div className="flex w-full flex-col gap-3">
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              className="w-full rounded-2xl border-2 border-dashed border-zinc-300 bg-white px-6 py-12 text-zinc-600 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            >
+              <span className="block text-base font-medium">Tap to upload a product photo</span>
+              <span className="mt-1 block text-xs text-zinc-500">JPG, PNG, WEBP</span>
+            </button>
+            {error && (
+              <p className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-left text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+                {error}
+              </p>
+            )}
+          </div>
         ) : (
           <div className="flex w-full flex-col items-center gap-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -197,15 +244,13 @@ export default function Home() {
                   alt="Generated lifestyle scene"
                   className="w-full rounded-2xl border border-zinc-200 bg-white object-contain shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
                 />
-                <a
-                  href={resultUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  download
+                <button
+                  type="button"
+                  onClick={downloadResult}
                   className="w-full rounded-full border border-zinc-300 bg-white px-5 py-3 text-center text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
                 >
-                  Open / download
-                </a>
+                  下载图片
+                </button>
               </div>
             )}
           </div>
