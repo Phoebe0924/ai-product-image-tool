@@ -15,7 +15,7 @@ const SCENES: Record<string, string> = Object.fromEntries(
 );
 
 const REPLICATE_CREATE_URL =
-  "https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-pro/predictions";
+  "https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-max/predictions";
 
 const TOTAL_BUDGET_MS = 75_000;
 const POLL_INTERVAL_MS = 2_000;
