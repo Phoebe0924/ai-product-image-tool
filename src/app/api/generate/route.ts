@@ -1,5 +1,3 @@
-import { NextRequest, NextResponse } from "next/server";
-
 export const runtime = "nodejs";
 export const maxDuration = 90;
 
@@ -16,12 +14,18 @@ const SCENES: Record<string, string> = Object.fromEntries(
   Object.entries(SCENE_PROMPTS).map(([id, p]) => [id, `${p} Keep the product unchanged.`]),
 );
 
-function jsonError(status: number, error: string, extra?: Record<string, unknown>) {
-  console.error("[generate] error", status, error, extra ?? {});
-  return NextResponse.json({ error, ...(extra ?? {}) }, { status });
+const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
+
+function jsonResponse(status: number, body: Record<string, unknown>): Response {
+  return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 }
 
-export async function POST(req: NextRequest) {
+function jsonError(status: number, error: string, extra?: Record<string, unknown>): Response {
+  console.error("[generate] error", status, error, extra ?? {});
+  return jsonResponse(status, { error, ...(extra ?? {}) });
+}
+
+export async function POST(req: Request): Promise<Response> {
   try {
     const token = process.env.REPLICATE_API_TOKEN;
     console.log("[generate] token present:", Boolean(token), "length:", token?.length ?? 0);
@@ -102,7 +106,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (!res.ok) {
-      return jsonError(502, data.detail || data.error || `Replicate request failed (HTTP ${res.status})`);
+      return jsonError(
+        502,
+        data.detail || data.error || `Replicate request failed (HTTP ${res.status})`,
+      );
     }
 
     if (data.status === "failed" || data.error) {
@@ -114,11 +121,11 @@ export async function POST(req: NextRequest) {
       return jsonError(504, "Generation timed out, please try again");
     }
 
-    return NextResponse.json({ imageUrl: output });
+    return jsonResponse(200, { imageUrl: output });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     const stack = err instanceof Error ? err.stack : undefined;
     console.error("[generate] uncaught:", message, stack);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return jsonResponse(500, { error: message });
   }
 }
