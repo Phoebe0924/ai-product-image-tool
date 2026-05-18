@@ -1,19 +1,6 @@
 export const runtime = "nodejs";
 export const maxDuration = 90;
 
-const SCENE_PROMPTS: Record<string, string> = {
-  "white-bg":
-    "Replace the background with a pure bright white seamless studio backdrop. Center the product with a soft realistic shadow beneath it. Even neutral studio lighting.",
-  "lifestyle-scene":
-    "Place the product in a warm natural lifestyle setting with soft daylight, gentle tasteful props, and a softly blurred cozy home interior in the background.",
-  "detail-closeup":
-    "Create a tight close-up macro shot focusing on the product's texture, material, and fine details. Add soft directional studio lighting that emphasizes craftsmanship. Subtle blurred background.",
-};
-
-const SCENES: Record<string, string> = Object.fromEntries(
-  Object.entries(SCENE_PROMPTS).map(([id, p]) => [id, `${p} Keep the product unchanged.`]),
-);
-
 const REPLICATE_CREATE_URL =
   "https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-max/predictions";
 
@@ -103,17 +90,18 @@ export async function POST(req: Request): Promise<Response> {
     } catch (e) {
       return jsonError(400, "Invalid JSON body", { detail: String(e) });
     }
-    const { imageDataUrl, scene } = (body ?? {}) as {
+    const { imageDataUrl, prompt: rawPrompt } = (body ?? {}) as {
       imageDataUrl?: unknown;
-      scene?: unknown;
+      prompt?: unknown;
     };
 
     if (typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
       return jsonError(400, "Missing or invalid image");
     }
-    if (typeof scene !== "string") return jsonError(400, "Missing scene");
-    const prompt = SCENES[scene];
-    if (!prompt) return jsonError(400, "Unknown scene");
+    if (typeof rawPrompt !== "string" || !rawPrompt.trim()) {
+      return jsonError(400, "Missing prompt");
+    }
+    const prompt = `${rawPrompt.trim()} Keep the product unchanged.`;
 
     const replicateInput = {
       input_image: imageDataUrl,
@@ -126,7 +114,6 @@ export async function POST(req: Request): Promise<Response> {
     console.log("[generate] payload:", {
       input_image: `<${imgMatch?.[1] ?? "image"}, ~${(approxBytes / 1024).toFixed(0)}KB>`,
       prompt_chars: prompt.length,
-      scene,
     });
 
     let createRes: Response;
