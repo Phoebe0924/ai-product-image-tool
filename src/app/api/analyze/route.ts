@@ -78,7 +78,13 @@ export async function POST(req: Request): Promise<Response> {
   const t0 = Date.now();
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;
-    console.log("[analyze] anthropic key present:", Boolean(apiKey));
+    const baseURL = process.env.ANTHROPIC_BASE_URL?.trim() || undefined;
+    console.log(
+      "[analyze] anthropic key present:",
+      Boolean(apiKey),
+      "baseURL:",
+      baseURL ?? "(default api.anthropic.com)",
+    );
     if (!apiKey) return jsonError(500, "Server is missing ANTHROPIC_API_KEY");
 
     let body: unknown;
@@ -103,7 +109,7 @@ export async function POST(req: Request): Promise<Response> {
       return jsonError(400, `Unsupported media type: ${mediaType}`);
     }
 
-    const client = new Anthropic({ apiKey });
+    const client = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) });
 
     const response = await client.messages.create({
       model: "claude-opus-4-5",
