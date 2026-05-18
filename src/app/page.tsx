@@ -3,9 +3,21 @@
 import { useRef, useState } from "react";
 
 const SCENES = [
-  { id: "white-bg", label: "白底主图" },
-  { id: "lifestyle-scene", label: "场景生活图" },
-  { id: "detail-closeup", label: "细节特写图" },
+  {
+    id: "white-bg",
+    label: "白底主图",
+    description: "适合淘宝/拼多多上架",
+  },
+  {
+    id: "lifestyle-scene",
+    label: "场景生活图",
+    description: "适合小红书/抖音种草",
+  },
+  {
+    id: "detail-closeup",
+    label: "细节特写图",
+    description: "展示产品质感细节",
+  },
 ] as const;
 
 type SceneId = (typeof SCENES)[number]["id"];
@@ -30,6 +42,26 @@ function isHeic(file: File): boolean {
   );
 }
 
+function UploadIcon() {
+  return (
+    <svg
+      width="40"
+      height="40"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
+  );
+}
+
 export default function Home() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -47,7 +79,7 @@ export default function Home() {
       return;
     }
     if (!file.type.startsWith("image/")) {
-      setError(`不支持的文件类型: ${file.type || "(unknown)"}`);
+      setError(`不支持的文件类型: ${file.type || "未知"}`);
       if (inputRef.current) inputRef.current.value = "";
       return;
     }
@@ -116,7 +148,7 @@ export default function Home() {
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = blobUrl;
-      a.download = `product-${scene ?? "image"}-${Date.now()}.${ext}`;
+      a.download = `lightpic-${scene ?? "image"}-${Date.now()}.${ext}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -127,14 +159,14 @@ export default function Home() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center bg-zinc-50 px-4 py-10 dark:bg-black sm:py-16">
-      <div className="flex w-full max-w-md flex-col items-center gap-6 text-center">
-        <header className="flex flex-col gap-2">
-          <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50 sm:text-4xl">
-            AI Product Photo
+    <main className="flex min-h-screen flex-col bg-[#F7F7F8] text-[#1A1A1A]">
+      <div className="mx-auto flex w-full max-w-[500px] flex-1 flex-col gap-6 px-4 py-8">
+        <header className="flex flex-col gap-2 text-center">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            轻图 LightPic · AI商品图生成
           </h1>
-          <p className="text-base text-zinc-600 dark:text-zinc-400">
-            Turn a plain product shot into a lifestyle scene in seconds.
+          <p className="text-sm text-[#6B6B6E]">
+            上传商品图,10秒生成专业电商场景图
           </p>
         </header>
 
@@ -154,27 +186,30 @@ export default function Home() {
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
-              className="w-full rounded-2xl border-2 border-dashed border-zinc-300 bg-white px-6 py-12 text-zinc-600 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              className="flex w-full flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#D1D1D6] bg-white px-6 py-12 text-[#1A1A1A] transition hover:border-[#1A1A1A] hover:bg-[#FAFAFA] active:bg-[#F0F0F2]"
             >
-              <span className="block text-base font-medium">Tap to upload a product photo</span>
-              <span className="mt-1 block text-xs text-zinc-500">JPG, PNG, WEBP</span>
+              <span className="text-[#6B6B6E]">
+                <UploadIcon />
+              </span>
+              <span className="text-base font-medium">点击上传商品图</span>
+              <span className="text-xs text-[#9A9A9E]">JPG · PNG · WEBP</span>
             </button>
             {error && (
-              <p className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-left text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+              <p className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-left text-xs text-red-700">
                 {error}
               </p>
             )}
           </div>
         ) : (
-          <div className="flex w-full flex-col items-center gap-4">
+          <div className="flex w-full flex-col gap-5">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={previewUrl}
-              alt={fileName ?? "Uploaded product"}
-              className="w-full rounded-2xl border border-zinc-200 bg-white object-contain shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+              alt={fileName ?? "已上传商品"}
+              className="w-full rounded-2xl border border-[#E5E5E7] bg-white object-contain shadow-sm"
             />
             {fileName && (
-              <p className="truncate text-xs text-zinc-500" title={fileName}>
+              <p className="truncate text-center text-xs text-[#9A9A9E]" title={fileName}>
                 {fileName}
               </p>
             )}
@@ -184,25 +219,23 @@ export default function Home() {
                 type="button"
                 onClick={() => inputRef.current?.click()}
                 disabled={loading}
-                className="flex-1 rounded-full border border-zinc-300 bg-white px-5 py-3 text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                className="flex-1 rounded-full border border-[#E5E5E7] bg-white px-5 py-2.5 text-sm font-medium text-[#1A1A1A] transition hover:bg-[#FAFAFA] disabled:opacity-50"
               >
-                Replace
+                重新上传
               </button>
               <button
                 type="button"
                 onClick={reset}
                 disabled={loading}
-                className="flex-1 rounded-full border border-zinc-300 bg-white px-5 py-3 text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                className="flex-1 rounded-full border border-[#E5E5E7] bg-white px-5 py-2.5 text-sm font-medium text-[#1A1A1A] transition hover:bg-[#FAFAFA] disabled:opacity-50"
               >
-                Remove
+                移除
               </button>
             </div>
 
-            <div className="mt-2 flex w-full flex-col gap-2">
-              <p className="text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
-                Choose a scene
-              </p>
-              <div className="grid grid-cols-3 gap-2">
+            <div className="flex w-full flex-col gap-3">
+              <p className="text-sm font-medium text-[#1A1A1A]">选择场景</p>
+              <div className="flex flex-col gap-2">
                 {SCENES.map((s) => {
                   const active = scene === s.id;
                   return (
@@ -212,13 +245,16 @@ export default function Home() {
                       disabled={loading}
                       onClick={() => setScene(s.id)}
                       className={
-                        "rounded-xl border px-2 py-3 text-xs font-medium transition disabled:opacity-50 " +
+                        "flex w-full flex-col gap-1 rounded-2xl border bg-white px-4 py-3 text-left transition disabled:opacity-50 " +
                         (active
-                          ? "border-black bg-black text-white dark:border-white dark:bg-white dark:text-black"
-                          : "border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800")
+                          ? "border-[#1A1A1A] ring-2 ring-[#1A1A1A] ring-offset-1 ring-offset-[#F7F7F8]"
+                          : "border-[#E5E5E7] hover:border-[#9A9A9E]")
                       }
                     >
-                      {s.label}
+                      <span className="text-base font-medium text-[#1A1A1A]">
+                        {s.label}
+                      </span>
+                      <span className="text-xs text-[#6B6B6E]">{s.description}</span>
                     </button>
                   );
                 })}
@@ -229,21 +265,21 @@ export default function Home() {
               type="button"
               onClick={generate}
               disabled={!scene || loading}
-              className="mt-2 w-full rounded-full bg-black px-5 py-3 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-black"
+              className="w-full rounded-full bg-[#1A1A1A] px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-[#000000] disabled:cursor-not-allowed disabled:bg-[#9A9A9E]"
             >
-              {loading ? "生成中…" : "生成场景"}
+              {loading ? "生成中…" : "立即生成"}
             </button>
 
             {error && (
               <div className="flex w-full flex-col gap-2">
-                <p className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-left text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+                <p className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-left text-xs text-red-700">
                   {error}
                 </p>
                 <button
                   type="button"
                   onClick={generate}
                   disabled={loading}
-                  className="w-full rounded-full border border-zinc-300 bg-white px-5 py-3 text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  className="w-full rounded-full border border-[#E5E5E7] bg-white px-5 py-2.5 text-sm font-medium text-[#1A1A1A] transition hover:bg-[#FAFAFA] disabled:opacity-50"
                 >
                   重试
                 </button>
@@ -251,27 +287,25 @@ export default function Home() {
             )}
 
             {loading && (
-              <div className="flex w-full animate-pulse flex-col items-center gap-2 rounded-2xl border border-zinc-200 bg-white p-6 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
-                <div className="h-32 w-full rounded-xl bg-zinc-200 dark:bg-zinc-800" />
+              <div className="flex w-full animate-pulse flex-col items-center gap-3 rounded-2xl border border-[#E5E5E7] bg-white p-6 text-xs text-[#6B6B6E]">
+                <div className="h-32 w-full rounded-xl bg-[#F0F0F2]" />
                 <span>AI 正在生成,通常需要 30-60 秒,请保持页面打开…</span>
               </div>
             )}
 
             {resultUrl && !loading && (
-              <div className="flex w-full flex-col items-center gap-3">
-                <p className="text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
-                  Result
-                </p>
+              <div className="flex w-full flex-col gap-3">
+                <p className="text-sm font-medium text-[#1A1A1A]">生成结果</p>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={resultUrl}
-                  alt="Generated lifestyle scene"
-                  className="w-full rounded-2xl border border-zinc-200 bg-white object-contain shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+                  alt="生成的商品场景图"
+                  className="w-full rounded-2xl border border-[#E5E5E7] bg-white object-contain shadow-sm"
                 />
                 <button
                   type="button"
                   onClick={downloadResult}
-                  className="w-full rounded-full border border-zinc-300 bg-white px-5 py-3 text-center text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  className="w-full rounded-full bg-[#22C55E] px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-[#16A34A]"
                 >
                   下载图片
                 </button>
@@ -279,6 +313,10 @@ export default function Home() {
             )}
           </div>
         )}
+
+        <footer className="mt-auto pt-6 text-center text-xs text-[#9A9A9E]">
+          轻图 LightPic · AI驱动的电商商品图工具
+        </footer>
       </div>
     </main>
   );

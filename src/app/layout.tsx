@@ -13,18 +13,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI 产品图生成",
-  description: "一键把产品图变成白底主图、场景生活图、细节特写图。",
+  title: "轻图 LightPic · AI商品图生成",
+  description: "上传商品图,10秒生成专业电商场景图。",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#fafafa" },
-    { media: "(prefers-color-scheme: dark)", color: "#000000" },
-  ],
+  themeColor: "#F7F7F8",
 };
 
 export default function RootLayout({
