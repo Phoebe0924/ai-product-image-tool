@@ -75,19 +75,33 @@ export default function Home() {
     setLoading(true);
     setError(null);
     setResultUrl(null);
+    const controller = new AbortController();
+    const clientTimeout = setTimeout(() => controller.abort(), 95_000);
     try {
       const imageDataUrl = await fileToDataUrl(originalFile);
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageDataUrl, scene }),
+        signal: controller.signal,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Generation failed");
+      let data: { imageUrl?: string; error?: string } = {};
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error(`服务器返回异常 (HTTP ${res.status}),请重试`);
+      }
+      if (!res.ok) throw new Error(data?.error || `生成失败 (HTTP ${res.status})`);
+      if (!data.imageUrl) throw new Error("生成失败:未返回图片地址");
       setResultUrl(data.imageUrl);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setError("生成超时(>90 秒),请重试");
+      } else {
+        setError(e instanceof Error ? e.message : "生成失败,请重试");
+      }
     } finally {
+      clearTimeout(clientTimeout);
       setLoading(false);
     }
   }
@@ -217,19 +231,29 @@ export default function Home() {
               disabled={!scene || loading}
               className="mt-2 w-full rounded-full bg-black px-5 py-3 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-black"
             >
-              {loading ? "Generating…" : "Generate scene"}
+              {loading ? "生成中…" : "生成场景"}
             </button>
 
             {error && (
-              <p className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-left text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-                {error}
-              </p>
+              <div className="flex w-full flex-col gap-2">
+                <p className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-left text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+                  {error}
+                </p>
+                <button
+                  type="button"
+                  onClick={generate}
+                  disabled={loading}
+                  className="w-full rounded-full border border-zinc-300 bg-white px-5 py-3 text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                >
+                  重试
+                </button>
+              </div>
             )}
 
             {loading && (
               <div className="flex w-full animate-pulse flex-col items-center gap-2 rounded-2xl border border-zinc-200 bg-white p-6 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
                 <div className="h-32 w-full rounded-xl bg-zinc-200 dark:bg-zinc-800" />
-                <span>Generating, this usually takes 10–30 seconds…</span>
+                <span>AI 正在生成,通常需要 30-60 秒,请保持页面打开…</span>
               </div>
             )}
 
