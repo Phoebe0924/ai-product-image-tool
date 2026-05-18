@@ -377,9 +377,13 @@ export default function Home() {
     setResults(
       plan.image_plan.map((p) => ({ planItem: p, status: "pending" })),
     );
-    await Promise.all(
-      plan.image_plan.map((item, idx) => generateOne(item, idx, imageDataUrl)),
-    );
+    // Sequential, with a 2.5s gap between requests, to stay under
+    // Replicate's per-second rate limit. Each generateOne handles its
+    // own errors and never throws, so one failure doesn't abort the rest.
+    for (let i = 0; i < plan.image_plan.length; i++) {
+      if (i > 0) await new Promise((r) => setTimeout(r, 2500));
+      await generateOne(plan.image_plan[i], i, imageDataUrl);
+    }
     setStep("complete");
   }
 
@@ -387,9 +391,10 @@ export default function Home() {
     if (!plan || !imageDataUrl) return;
     setStep("generating");
     setResults(plan.image_plan.map((p) => ({ planItem: p, status: "pending" })));
-    await Promise.all(
-      plan.image_plan.map((item, idx) => generateOne(item, idx, imageDataUrl)),
-    );
+    for (let i = 0; i < plan.image_plan.length; i++) {
+      if (i > 0) await new Promise((r) => setTimeout(r, 2500));
+      await generateOne(plan.image_plan[i], i, imageDataUrl);
+    }
     setStep("complete");
   }
 

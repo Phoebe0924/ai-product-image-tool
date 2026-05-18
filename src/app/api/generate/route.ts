@@ -41,9 +41,20 @@ async function fetchWithRetry(
   label: string,
 ): Promise<Response> {
   let lastErr: unknown;
+  let used429Retry = false;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await fetchWithTimeout(url, init, timeoutMs);
+      // 429 rate limit: back off 5s and retry once, outside the normal
+      // retry budget. Replicate sometimes returns non-JSON HTML on 429
+      // which would otherwise surface as "Replicate returned non-JSON".
+      if (res.status === 429 && !used429Retry) {
+        used429Retry = true;
+        console.warn(`[generate] ${label} got 429 (rate limited), waiting 5s and retrying once`);
+        await sleep(5_000);
+        attempt--; // don't consume a normal retry slot
+        continue;
+      }
       if (res.status >= 500 && res.status < 600 && attempt < retries) {
         console.warn(`[generate] ${label} got ${res.status}, retrying (attempt ${attempt + 1}/${retries})`);
         await sleep(500 * (attempt + 1));
