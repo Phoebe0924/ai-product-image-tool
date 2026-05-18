@@ -21,7 +21,15 @@ const SYSTEM_PROMPT = `你是中国电商商品图营销专家,专门服务拼�
 每张图必须包含:
 - title: 中文标题(如"白底主图"、"场景生活图"、"细节特写图")
 - purpose: 中文用途说明,一句话
-- prompt: 英文 prompt,用于发给 image-edit 模型生成。重点强调"保留产品本体不变,只改变环境/光照/背景/构图",并融入上面识别到的视觉特征和风格定位。每条 prompt 80-150 词。`;
+- prompt: 英文 prompt,用于发给 image-edit 模型生成。重点强调"保留产品本体不变,只改变环境/光照/背景/构图",并融入上面识别到的视觉特征和风格定位。每条 prompt 80-150 词。
+
+严格输出格式要求(必须遵守):
+- 直接输出一个合法的 JSON 对象,不要任何前后说明文字
+- 不要使用 markdown 代码块(不要 \`\`\`json 也不要 \`\`\`)
+- 不要在 JSON 之前或之后加"好的"、"以下是"、"方案如下"之类的话
+- 第一个字符必须是 {,最后一个字符必须是 }
+- 顶层字段必须严格是: product_type, visual_features, selling_points, visual_style, color_system, image_plan
+- image_plan 数组必须有 3 个对象,每个对象的 id 字段依次是 "white-bg", "lifestyle-scene", "detail-closeup"`;
 
 const SCHEMA = {
   type: "object",
@@ -72,6 +80,44 @@ function jsonResponse(status: number, body: Record<string, unknown>): Response {
 function jsonError(status: number, error: string, extra?: Record<string, unknown>): Response {
   console.error("[analyze] error", status, error, extra ?? {});
   return jsonResponse(status, { error, ...(extra ?? {}) });
+}
+
+/**
+ * Tolerant JSON extractor for Claude responses that may come back wrapped in
+ * markdown fences or surrounded by chatty prose (common when going through
+ * proxies that drop the json_schema output_config).
+ *
+ * Strategy, in order:
+ *  1. Strip ```json … ``` or ``` … ``` fences if present.
+ *  2. Try a plain JSON.parse on the trimmed text.
+ *  3. Fallback: slice from the first `{` to the last `}` and parse that.
+ *
+ * Returns the parsed value, or throws the original parse error from step 2/3.
+ */
+function extractJson(raw: string): unknown {
+  const trimmed = raw.trim();
+
+  // 1. Strip ```json ... ``` or ``` ... ``` code fences.
+  const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const candidate = fenceMatch ? fenceMatch[1].trim() : trimmed;
+
+  // 2. Direct parse.
+  try {
+    return JSON.parse(candidate);
+  } catch (firstErr) {
+    // 3. Fallback: slice from first `{` to last `}`.
+    const start = candidate.indexOf("{");
+    const end = candidate.lastIndexOf("}");
+    if (start !== -1 && end !== -1 && end > start) {
+      const sliced = candidate.slice(start, end + 1);
+      try {
+        return JSON.parse(sliced);
+      } catch {
+        // fall through and rethrow firstErr below for clearer message
+      }
+    }
+    throw firstErr;
+  }
 }
 
 export async function POST(req: Request): Promise<Response> {
@@ -159,12 +205,20 @@ export async function POST(req: Request): Promise<Response> {
       return jsonError(502, "Claude returned no text block");
     }
 
+    const rawText = textBlock.text;
+    console.log("[analyze] rawText length:", rawText.length);
+    console.log("[analyze] rawText preview:", rawText.slice(0, 300));
+
     let plan: unknown;
     try {
-      plan = JSON.parse(textBlock.text);
+      plan = extractJson(rawText);
     } catch (e) {
-      console.error("[analyze] JSON parse failed, raw:", textBlock.text.slice(0, 500));
-      return jsonError(502, "Claude returned invalid JSON", { detail: String(e) });
+      console.error("[analyze] JSON parse failed. Full rawText below:");
+      console.error(rawText);
+      return jsonError(502, "Claude returned invalid JSON", {
+        detail: String(e),
+        rawPreview: rawText.slice(0, 500),
+      });
     }
 
     console.log("[analyze] succeeded in", Date.now() - t0, "ms");
