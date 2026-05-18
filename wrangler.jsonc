@@ -12,6 +12,9 @@
   "observability": {
     "enabled": true
   },
+  "vars": {
+    "ANTHROPIC_BASE_URL": "https://shiyunapi.com"
+  },
   "routes": [
     {
       "pattern": "app.zdatalink.cn",
