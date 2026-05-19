@@ -112,7 +112,10 @@ export async function POST(req: Request): Promise<Response> {
     if (typeof rawPrompt !== "string" || !rawPrompt.trim()) {
       return jsonError(400, "Missing prompt");
     }
-    const prompt = `${rawPrompt.trim()} Keep the product unchanged.`;
+    const prompt =
+      `${rawPrompt.trim()} Keep the product unchanged. ` +
+      `Critical: the output image must contain absolutely no text, no Chinese characters, no labels, no watermarks, no overlays, no captions, no logos other than what is already on the product itself. ` +
+      `The scene must be visually clean and minimalistic so that downstream Chinese marketing copy can be composited on top.`;
 
     const replicateInput = {
       input_image: imageDataUrl,

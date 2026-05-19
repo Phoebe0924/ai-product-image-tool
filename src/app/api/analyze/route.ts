@@ -32,14 +32,22 @@ reason 示例:"检测到这是充电宝/数码周边类商品。LightPic 目前�
 每张图必须包含:
 - title: 中文标题(如"白底主图"、"场景生活图"、"细节特写图")
 - purpose: 中文用途说明,一句话
-- prompt: 英文 prompt,用于发给 image-edit 模型生成。重点强调"保留产品本体不变,只改变环境/光照/背景/构图",并融入上面识别到的视觉特征和风格定位。每条 prompt 80-150 词。
+- prompt: 英文 prompt,用于发给 image-edit 模型生成。重点强调"保留产品本体不变,只改变环境/光照/背景/构图",并融入上面识别到的视觉特征和风格定位。每条 prompt 80-150 词。**关键:必须显式要求生成的底图不出现任何文字、标签、水印、文案叠加 (no text, no labels, no watermarks, no copy overlays, no Chinese characters in the scene)**,因为最终的中文标题和卖点会由前端 Canvas 在底图上叠加合成。
+
+7. copy: 中文营销文案,用于前端 Canvas 在底图上叠加合成。必须包含以下字段:
+   - main_title: 主标题,8-14 个汉字,营销冲击力强(如"防晒不透皮 温和不用卸"、"粉胶囊防晒 美白更稳白")
+   - sub_title: 副标题,3-20 字,可含数字 / 英文 / 符号(如"SPF50+ PA++++"、"3.0 遇光更耐晒"、"专为户外场景设计")
+   - bullets: 3 条勾选式短卖点,每条 4-8 个汉字(如["安全免渗透","水润无负担","特护敏感肌"])
+   - side_badges: 2 个角标短句,每条 4-8 个汉字(如["光电后1天可用","免卸妆更护屏"])
+   - new_badge: 1 个圆形 NEW 角标短句,3-8 字(如"NEW 光胶囊"、"粉胶囊3.0",如确实没有合适的就返回空字符串 "")
+   - brand: 品牌英文/中文名,如包装上能识别出品牌则填(如"OSITREE"),否则返回空字符串 ""
 
 严格输出格式要求(必须遵守,两个分支都适用):
 - 直接输出一个合法的 JSON 对象,不要任何前后说明文字
 - 不要使用 markdown 代码块(不要 \`\`\`json 也不要 \`\`\`)
 - 不要在 JSON 之前或之后加"好的"、"以下是"、"方案如下"、"我注意到"之类的话
 - 第一个字符必须是 {,最后一个字符必须是 }
-- 护肤品分支:顶层字段必须严格是 product_type, visual_features, selling_points, visual_style, color_system, image_plan;image_plan 数组必须有 3 个对象,id 依次是 "white-bg", "lifestyle-scene", "detail-closeup"
+- 护肤品分支:顶层字段必须严格是 product_type, visual_features, selling_points, visual_style, color_system, image_plan, copy;image_plan 数组必须有 3 个对象,id 依次是 "white-bg", "lifestyle-scene", "detail-closeup"
 - 非护肤品分支:顶层字段必须严格是 unsupported, reason;不要再输出其他字段`;
 
 const SCHEMA = {
@@ -71,6 +79,19 @@ const SCHEMA = {
         required: ["id", "title", "purpose", "prompt"],
       },
     },
+    copy: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        main_title: { type: "string" },
+        sub_title: { type: "string" },
+        bullets: { type: "array", items: { type: "string" } },
+        side_badges: { type: "array", items: { type: "string" } },
+        new_badge: { type: "string" },
+        brand: { type: "string" },
+      },
+      required: ["main_title", "sub_title", "bullets", "side_badges", "new_badge", "brand"],
+    },
   },
   required: [
     "product_type",
@@ -79,6 +100,7 @@ const SCHEMA = {
     "visual_style",
     "color_system",
     "image_plan",
+    "copy",
   ],
 };
 

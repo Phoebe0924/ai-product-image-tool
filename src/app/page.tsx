@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { synthesizeTemplate1, type CopyData } from "@/lib/canvas/template1";
 
 type StepId = "input" | "analyzing" | "plan" | "generating" | "complete";
 
@@ -35,12 +36,14 @@ type AnalyzedPlan = {
   visual_style: string;
   color_system: string;
   image_plan: ImagePlanItem[];
+  copy?: CopyData;
 };
 
 type GeneratedItem = {
   planItem: ImagePlanItem;
-  status: "pending" | "loading" | "done" | "error";
-  imageUrl?: string;
+  status: "pending" | "loading" | "done" | "composing" | "error";
+  imageUrl?: string;       // raw base from Replicate
+  composedUrl?: string;    // final canvas-synthesized image
   error?: string;
 };
 
@@ -361,11 +364,39 @@ export default function Home() {
       }
       if (!res.ok) throw new Error(data.error || `生成失败 (HTTP ${res.status})`);
       if (!data.imageUrl) throw new Error("生成失败:未返回图片地址");
+      const baseUrl = data.imageUrl;
       setResults((prev) => {
         const next = [...prev];
-        next[idx] = { ...next[idx], status: "done", imageUrl: data.imageUrl };
+        next[idx] = { ...next[idx], status: "done", imageUrl: baseUrl };
         return next;
       });
+
+      // Stage 1: only the lifestyle-scene slot goes through Canvas
+      // synthesis (it's the headline marketing image). Other slots
+      // (white-bg, detail-closeup) ship as-is for now.
+      if (item.id === "lifestyle-scene" && plan?.copy) {
+        setResults((prev) => {
+          const next = [...prev];
+          next[idx] = { ...next[idx], status: "composing" };
+          return next;
+        });
+        try {
+          const composedUrl = await synthesizeTemplate1(baseUrl, plan.copy);
+          setResults((prev) => {
+            const next = [...prev];
+            next[idx] = { ...next[idx], status: "done", composedUrl };
+            return next;
+          });
+        } catch (composeErr) {
+          console.warn("Canvas composition failed:", composeErr);
+          // Keep the raw base image; not a fatal error.
+          setResults((prev) => {
+            const next = [...prev];
+            next[idx] = { ...next[idx], status: "done" };
+            return next;
+          });
+        }
+      }
     } catch (e) {
       const msg =
         e instanceof DOMException && e.name === "AbortError"
@@ -413,9 +444,12 @@ export default function Home() {
 
   async function downloadOne(idx: number) {
     const item = results[idx];
-    if (!item?.imageUrl) return;
+    // Prefer the Canvas-composed image if available; fall back to the
+    // raw Replicate output for slots without composition (white-bg etc).
+    const url = item?.composedUrl || item?.imageUrl;
+    if (!url) return;
     try {
-      const res = await fetch(item.imageUrl);
+      const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to fetch image");
       const blob = await res.blob();
       const ext = (blob.type.split("/")[1] || "jpg").split("+")[0];
@@ -726,10 +760,10 @@ export default function Home() {
               <Card key={i} className="!p-3">
                 <div className="flex flex-col gap-2">
                   <div className="aspect-square w-full overflow-hidden rounded-xl border border-[#E5E5E7] bg-[#FAFAFA]">
-                    {r.status === "done" && r.imageUrl ? (
+                    {r.status === "done" && (r.composedUrl || r.imageUrl) ? (
                       /* eslint-disable-next-line @next/next/no-img-element */
                       <img
-                        src={r.imageUrl}
+                        src={r.composedUrl || r.imageUrl}
                         alt={r.planItem.title}
                         className="h-full w-full object-cover"
                       />
@@ -743,7 +777,11 @@ export default function Home() {
                     ) : (
                       <div className="flex h-full w-full animate-pulse items-center justify-center bg-[#F0F0F2]">
                         <span className="text-xs text-[#9A9A9E]">
-                          {r.status === "loading" ? "生成中..." : "等待中"}
+                          {r.status === "loading"
+                            ? "生成中..."
+                            : r.status === "composing"
+                              ? "合成文案中..."
+                              : "等待中"}
                         </span>
                       </div>
                     )}
