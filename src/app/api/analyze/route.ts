@@ -5,6 +5,17 @@ export const maxDuration = 60;
 
 const SYSTEM_PROMPT = `你是中国电商商品图营销专家,专门服务拼多多护肤品类卖家。
 
+【非护肤品分支(必须先判断)】
+如果用户上传的图片**不是护肤品**(护肤品包括:面霜、乳液、精华液、化妆水/爽肤水、洁面、防晒、面膜、眼霜、唇膏、护肤套装等),
+请只输出以下格式的 JSON,不要做任何其他分析,也不要尝试硬套护肤品方案:
+
+{"unsupported": true, "reason": "<一句中文说明,告诉用户检测到的是什么品类,以及目前 LightPic 只支持护肤品>"}
+
+reason 示例:"检测到这是充电宝/数码周边类商品。LightPic 目前只支持护肤品类(面霜、精华、洁面、防晒等),其他品类我们正在筹备中,敬请期待。"
+
+【护肤品分支】
+如果是护肤品,按下面要求输出完整的商品图生成方案。
+
 你的任务: 分析用户上传的护肤品产品图,输出一份完整的商品图生成方案。
 
 输出要求:
@@ -23,13 +34,13 @@ const SYSTEM_PROMPT = `你是中国电商商品图营销专家,专门服务拼�
 - purpose: 中文用途说明,一句话
 - prompt: 英文 prompt,用于发给 image-edit 模型生成。重点强调"保留产品本体不变,只改变环境/光照/背景/构图",并融入上面识别到的视觉特征和风格定位。每条 prompt 80-150 词。
 
-严格输出格式要求(必须遵守):
+严格输出格式要求(必须遵守,两个分支都适用):
 - 直接输出一个合法的 JSON 对象,不要任何前后说明文字
 - 不要使用 markdown 代码块(不要 \`\`\`json 也不要 \`\`\`)
-- 不要在 JSON 之前或之后加"好的"、"以下是"、"方案如下"之类的话
+- 不要在 JSON 之前或之后加"好的"、"以下是"、"方案如下"、"我注意到"之类的话
 - 第一个字符必须是 {,最后一个字符必须是 }
-- 顶层字段必须严格是: product_type, visual_features, selling_points, visual_style, color_system, image_plan
-- image_plan 数组必须有 3 个对象,每个对象的 id 字段依次是 "white-bg", "lifestyle-scene", "detail-closeup"`;
+- 护肤品分支:顶层字段必须严格是 product_type, visual_features, selling_points, visual_style, color_system, image_plan;image_plan 数组必须有 3 个对象,id 依次是 "white-bg", "lifestyle-scene", "detail-closeup"
+- 非护肤品分支:顶层字段必须严格是 unsupported, reason;不要再输出其他字段`;
 
 const SCHEMA = {
   type: "object",
@@ -219,6 +230,25 @@ export async function POST(req: Request): Promise<Response> {
         detail: String(e),
         rawPreview: rawText.slice(0, 500),
       });
+    }
+
+    // Non-skincare branch: Claude returned {unsupported: true, reason: "..."}.
+    // Surface it as a 200 response with the same shape, so the front-end can
+    // show a friendly message instead of an error.
+    if (
+      typeof plan === "object" &&
+      plan !== null &&
+      "unsupported" in plan &&
+      (plan as { unsupported?: unknown }).unsupported === true
+    ) {
+      const reasonRaw = (plan as { reason?: unknown }).reason;
+      const reason =
+        typeof reasonRaw === "string" && reasonRaw.trim()
+          ? reasonRaw
+          : "目前 LightPic 只支持护肤品类(面霜、精华、洁面、防晒等),其他品类正在筹备中。";
+      console.log("[analyze] unsupported product, reason:", reason);
+      console.log("[analyze] succeeded (unsupported branch) in", Date.now() - t0, "ms");
+      return jsonResponse(200, { unsupported: true, reason });
     }
 
     console.log("[analyze] succeeded in", Date.now() - t0, "ms");

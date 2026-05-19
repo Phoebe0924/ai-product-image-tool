@@ -249,6 +249,7 @@ export default function Home() {
   const [plan, setPlan] = useState<AnalyzedPlan | null>(null);
   const [results, setResults] = useState<GeneratedItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function reset() {
@@ -260,6 +261,7 @@ export default function Home() {
     setPlan(null);
     setResults([]);
     setError(null);
+    setNotice(null);
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -289,6 +291,7 @@ export default function Home() {
   async function startAnalyze() {
     if (!originalFile) return;
     setError(null);
+    setNotice(null);
     setStep("analyzing");
     try {
       const dataUrl = await fileToDataUrl(originalFile);
@@ -302,13 +305,23 @@ export default function Home() {
           body: JSON.stringify({ imageDataUrl: dataUrl }),
           signal: controller.signal,
         });
-        let data: { plan?: AnalyzedPlan; error?: string } = {};
+        let data: { plan?: AnalyzedPlan; unsupported?: boolean; reason?: string; error?: string } = {};
         try {
           data = await res.json();
         } catch {
           throw new Error(`分析服务返回异常 (HTTP ${res.status})`);
         }
         if (!res.ok) throw new Error(data.error || `分析失败 (HTTP ${res.status})`);
+        // Non-skincare branch: server returned 200 with {unsupported: true, reason}.
+        // Surface as a friendly notice on the input step, not an error.
+        if (data.unsupported) {
+          setNotice(
+            data.reason ||
+              "目前 LightPic 只支持护肤品类(面霜、精华、洁面、防晒等),其他品类正在筹备中。",
+          );
+          setStep("input");
+          return;
+        }
         if (!data.plan) throw new Error("分析失败:未返回方案");
         setPlan(data.plan);
         setStep("plan");
@@ -498,6 +511,13 @@ export default function Home() {
                 <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                   {error}
                 </p>
+              )}
+
+              {notice && (
+                <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+                  <span aria-hidden="true">💡</span>
+                  <span>{notice}</span>
+                </div>
               )}
 
               <PrimaryButton onClick={startAnalyze} disabled={!originalFile}>
