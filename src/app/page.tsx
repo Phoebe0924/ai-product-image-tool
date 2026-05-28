@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { synthesizeTemplate1, type CopyData } from "@/lib/canvas/template1";
 
 type StepId = "input" | "analyzing" | "plan" | "generating" | "complete";
@@ -23,10 +23,12 @@ const PLATFORM_SPEC = {
 };
 
 type ImagePlanItem = {
-  id: "white-bg" | "lifestyle-scene" | "detail-closeup";
+  id: "scene-1" | "scene-2" | "scene-3" | "scene-4";
+  layout_variant?: "A" | "B" | "C" | "D";
   title: string;
   purpose: string;
   prompt: string;
+  copy: CopyData;
 };
 
 type AnalyzedPlan = {
@@ -37,6 +39,14 @@ type AnalyzedPlan = {
   color_system: string;
   image_plan: ImagePlanItem[];
   copy?: CopyData;
+};
+
+type ScoreData = {
+  ctrPotential: number;
+  subjectClarity: number;
+  pddMatch: number;
+  aiTemplateFeeling: number;
+  scoreSource: string;
 };
 
 type GeneratedItem = {
@@ -108,33 +118,33 @@ function CheckIcon() {
 function StepIndicator({ current }: { current: StepId }) {
   const currentIdx = STEPS.findIndex((s) => s.id === current);
   return (
-    <ol className="flex w-full items-center gap-1 sm:gap-2">
+    <ol className="flex w-full items-center">
       {STEPS.map((step, idx) => {
         const isDone = idx < currentIdx;
         const isCurrent = idx === currentIdx;
         return (
-          <li key={step.id} className="flex flex-1 items-center gap-1 sm:gap-2">
-            <div className="flex flex-1 flex-col items-center gap-1">
+          <li key={step.id} className="flex flex-1 items-center">
+            <div className="flex flex-1 flex-col items-center gap-1.5">
               <div
                 className={
-                  "flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition " +
+                  "flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-medium transition-colors " +
                   (isDone
-                    ? "bg-[#2563EB] text-white"
+                    ? "bg-[#1A1A1A] text-white"
                     : isCurrent
-                      ? "bg-[#1A1A1A] text-white"
-                      : "bg-[#E5E5E7] text-[#9A9A9E]")
+                      ? "bg-[#1A1A1A] text-white ring-4 ring-[#1A1A1A]/10"
+                      : "bg-[#E8E8EA] text-[#AEAEB2]")
                 }
               >
                 {isDone ? <CheckIcon /> : idx + 1}
               </div>
               <span
                 className={
-                  "text-[11px] sm:text-xs " +
+                  "text-[10px] tracking-wide " +
                   (isCurrent
-                    ? "font-medium text-[#1A1A1A]"
+                    ? "font-semibold text-[#1A1A1A]"
                     : isDone
-                      ? "text-[#2563EB]"
-                      : "text-[#9A9A9E]")
+                      ? "font-medium text-[#1A1A1A]"
+                      : "text-[#AEAEB2]")
                 }
               >
                 {step.label}
@@ -143,7 +153,7 @@ function StepIndicator({ current }: { current: StepId }) {
             {idx < STEPS.length - 1 && (
               <div
                 className={
-                  "h-0.5 flex-1 transition " + (isDone ? "bg-[#2563EB]" : "bg-[#E5E5E7]")
+                  "mb-4 h-px flex-1 transition-colors " + (isDone ? "bg-[#1A1A1A]" : "bg-[#E8E8EA]")
                 }
               />
             )}
@@ -164,7 +174,7 @@ function Card({
   return (
     <div
       className={
-        "rounded-2xl border border-[#E5E5E7] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] " +
+        "rounded-xl border border-[#E8E8EA] bg-white p-5 " +
         className
       }
     >
@@ -182,7 +192,7 @@ function CardSection({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-[#6B6B6E]">
+      <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#AEAEB2]">
         {title}
       </h3>
       <div className="text-sm text-[#1A1A1A]">{children}</div>
@@ -199,7 +209,7 @@ function PrimaryButton({
       type="button"
       {...rest}
       className={
-        "w-full rounded-full bg-[#2563EB] px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:bg-[#9A9A9E] " +
+        "w-full rounded-lg bg-[#1A1A1A] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#333] disabled:cursor-not-allowed disabled:bg-[#AEAEB2] " +
         (rest.className ?? "")
       }
     >
@@ -217,7 +227,7 @@ function SecondaryButton({
       type="button"
       {...rest}
       className={
-        "w-full rounded-full border border-[#E5E5E7] bg-white px-5 py-2.5 text-sm font-medium text-[#1A1A1A] transition hover:bg-[#FAFAFA] disabled:opacity-50 " +
+        "w-full rounded-lg border border-[#E8E8EA] bg-white px-5 py-2.5 text-sm font-medium text-[#1A1A1A] transition hover:bg-[#F5F5F7] disabled:opacity-50 " +
         (rest.className ?? "")
       }
     >
@@ -235,7 +245,7 @@ function GreenButton({
       type="button"
       {...rest}
       className={
-        "w-full rounded-full bg-[#22C55E] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#16A34A] disabled:cursor-not-allowed disabled:opacity-50 " +
+        "w-full rounded-lg bg-[#1A1A1A] px-5 py-2.5 text-sm font-medium text-white transition hover:bg-[#333] disabled:cursor-not-allowed disabled:opacity-50 " +
         (rest.className ?? "")
       }
     >
@@ -249,7 +259,10 @@ export default function Home() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [originalFile, setOriginalFile] = useState<File | null>(null);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [productDescription, setProductDescription] = useState<string>("");
   const [plan, setPlan] = useState<AnalyzedPlan | null>(null);
+  const [score, setScore] = useState<ScoreData | null>(null);
+  const [editedCopies, setEditedCopies] = useState<Record<string, CopyData>>({});
   const [results, setResults] = useState<GeneratedItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -261,12 +274,28 @@ export default function Home() {
     setPreviewUrl(null);
     setOriginalFile(null);
     setImageDataUrl(null);
+    setProductDescription("");
     setPlan(null);
+    setScore(null);
+    setEditedCopies({});
     setResults([]);
     setError(null);
     setNotice(null);
     if (inputRef.current) inputRef.current.value = "";
   }
+
+  // Sync editedCopies whenever a new plan arrives
+  useEffect(() => {
+    if (plan?.image_plan) {
+      const copies: Record<string, CopyData> = {};
+      for (const item of plan.image_plan) {
+        copies[item.id] = { ...item.copy, bullets: [...item.copy.bullets], side_badges: [...item.copy.side_badges] };
+      }
+      setEditedCopies(copies);
+    } else {
+      setEditedCopies({});
+    }
+  }, [plan]);
 
   function handleFile(file: File) {
     if (isHeic(file)) {
@@ -305,10 +334,10 @@ export default function Home() {
         const res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageDataUrl: dataUrl }),
+          body: JSON.stringify({ imageDataUrl: dataUrl, productDescription: productDescription.trim() || undefined }),
           signal: controller.signal,
         });
-        let data: { plan?: AnalyzedPlan; unsupported?: boolean; reason?: string; error?: string } = {};
+        let data: { plan?: AnalyzedPlan; score?: ScoreData; unsupported?: boolean; reason?: string; error?: string } = {};
         try {
           data = await res.json();
         } catch {
@@ -327,6 +356,7 @@ export default function Home() {
         }
         if (!data.plan) throw new Error("分析失败:未返回方案");
         setPlan(data.plan);
+        if (data.score) setScore(data.score as ScoreData);
         setStep("plan");
       } finally {
         clearTimeout(timer);
@@ -347,70 +377,84 @@ export default function Home() {
       next[idx] = { ...next[idx], status: "loading" };
       return next;
     });
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 95_000);
-    try {
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageDataUrl: dataUrl, prompt: item.prompt }),
-        signal: controller.signal,
-      });
-      let data: { imageUrl?: string; error?: string } = {};
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 95_000);
       try {
-        data = await res.json();
-      } catch {
-        throw new Error(`服务器返回异常 (HTTP ${res.status})`);
-      }
-      if (!res.ok) throw new Error(data.error || `生成失败 (HTTP ${res.status})`);
-      if (!data.imageUrl) throw new Error("生成失败:未返回图片地址");
-      const baseUrl = data.imageUrl;
-      setResults((prev) => {
-        const next = [...prev];
-        next[idx] = { ...next[idx], status: "done", imageUrl: baseUrl };
-        return next;
-      });
-
-      // Stage 1: only the lifestyle-scene slot goes through Canvas
-      // synthesis (it's the headline marketing image). Other slots
-      // (white-bg, detail-closeup) ship as-is for now.
-      if (item.id === "lifestyle-scene" && plan?.copy) {
+        const res = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageDataUrl: dataUrl, prompt: item.prompt }),
+          signal: controller.signal,
+        });
+        let data: { imageUrl?: string; error?: string } = {};
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error(`服务器返回异常 (HTTP ${res.status})`);
+        }
+        // 429: back off and retry
+        if (res.status === 429 && attempt < MAX_ATTEMPTS - 1) {
+          clearTimeout(timer);
+          await new Promise((r) => setTimeout(r, 6_000 * (attempt + 1)));
+          continue;
+        }
+        if (!res.ok) throw new Error(data.error || `生成失败 (HTTP ${res.status})`);
+        if (!data.imageUrl) throw new Error("生成失败:未返回图片地址");
+        const baseUrl = data.imageUrl;
         setResults((prev) => {
           const next = [...prev];
-          next[idx] = { ...next[idx], status: "composing" };
+          next[idx] = { ...next[idx], status: "done", imageUrl: baseUrl };
           return next;
         });
-        try {
-          const composedUrl = await synthesizeTemplate1(baseUrl, plan.copy);
+
+        // All 4 slots are scene images — all go through Canvas composition.
+        const copy = editedCopies[item.id];
+        if (copy) {
           setResults((prev) => {
             const next = [...prev];
-            next[idx] = { ...next[idx], status: "done", composedUrl };
+            next[idx] = { ...next[idx], status: "composing" };
             return next;
           });
-        } catch (composeErr) {
-          console.warn("Canvas composition failed:", composeErr);
-          // Keep the raw base image; not a fatal error.
-          setResults((prev) => {
-            const next = [...prev];
-            next[idx] = { ...next[idx], status: "done" };
-            return next;
-          });
+          try {
+            const composedUrl = await synthesizeTemplate1(baseUrl, copy, dataUrl, item.layout_variant);
+            setResults((prev) => {
+              const next = [...prev];
+              next[idx] = { ...next[idx], status: "done", composedUrl };
+              return next;
+            });
+          } catch (composeErr) {
+            console.warn("Canvas composition failed:", composeErr);
+            setResults((prev) => {
+              const next = [...prev];
+              next[idx] = { ...next[idx], status: "done" };
+              return next;
+            });
+          }
         }
+        clearTimeout(timer);
+        return; // success
+      } catch (e) {
+        clearTimeout(timer);
+        const is429 = e instanceof Error && e.message.includes("429");
+        if (is429 && attempt < MAX_ATTEMPTS - 1) {
+          await new Promise((r) => setTimeout(r, 6_000 * (attempt + 1)));
+          continue;
+        }
+        const msg =
+          e instanceof DOMException && e.name === "AbortError"
+            ? "生成超时,请重试"
+            : e instanceof Error
+              ? e.message
+              : "生成失败";
+        setResults((prev) => {
+          const next = [...prev];
+          next[idx] = { ...next[idx], status: "error", error: msg };
+          return next;
+        });
+        return;
       }
-    } catch (e) {
-      const msg =
-        e instanceof DOMException && e.name === "AbortError"
-          ? "生成超时,请重试"
-          : e instanceof Error
-            ? e.message
-            : "生成失败";
-      setResults((prev) => {
-        const next = [...prev];
-        next[idx] = { ...next[idx], status: "error", error: msg };
-        return next;
-      });
-    } finally {
-      clearTimeout(timer);
     }
   }
 
@@ -421,11 +465,8 @@ export default function Home() {
     setResults(
       plan.image_plan.map((p) => ({ planItem: p, status: "pending" })),
     );
-    // Sequential, with a 2.5s gap between requests, to stay under
-    // Replicate's per-second rate limit. Each generateOne handles its
-    // own errors and never throws, so one failure doesn't abort the rest.
     for (let i = 0; i < plan.image_plan.length; i++) {
-      if (i > 0) await new Promise((r) => setTimeout(r, 2500));
+      if (i > 0) await new Promise((r) => setTimeout(r, 3_000));
       await generateOne(plan.image_plan[i], i, imageDataUrl);
     }
     setStep("complete");
@@ -436,7 +477,7 @@ export default function Home() {
     setStep("generating");
     setResults(plan.image_plan.map((p) => ({ planItem: p, status: "pending" })));
     for (let i = 0; i < plan.image_plan.length; i++) {
-      if (i > 0) await new Promise((r) => setTimeout(r, 2500));
+      if (i > 0) await new Promise((r) => setTimeout(r, 3_000));
       await generateOne(plan.image_plan[i], i, imageDataUrl);
     }
     setStep("complete");
@@ -444,8 +485,7 @@ export default function Home() {
 
   async function downloadOne(idx: number) {
     const item = results[idx];
-    // Prefer the Canvas-composed image if available; fall back to the
-    // raw Replicate output for slots without composition (white-bg etc).
+    // Prefer the Canvas-composed image if available; fall back to raw Replicate output.
     const url = item?.composedUrl || item?.imageUrl;
     if (!url) return;
     try {
@@ -482,40 +522,34 @@ export default function Home() {
       return (
         <div className="flex flex-col gap-4">
           <Card>
-            <div className="flex flex-col gap-3">
-              <h2 className="text-base font-semibold text-[#1A1A1A]">
-                上传商品图
-              </h2>
-              <p className="text-xs text-[#6B6B6E]">
-                上传清晰的护肤品产品图,AI 将自动分析产品并生成 3 张专业商品图。
-              </p>
+            <div className="flex flex-col gap-4">
+              <div>
+                <h2 className="text-sm font-semibold text-[#1A1A1A]">上传商品图</h2>
+                <p className="mt-0.5 text-xs text-[#AEAEB2]">支持 JPG · PNG · WEBP，建议白底或简单背景</p>
+              </div>
 
               <div
                 onDrop={onDrop}
                 onDragOver={(e) => e.preventDefault()}
-                className="flex flex-col items-center justify-center"
               >
                 <button
                   type="button"
                   onClick={() => inputRef.current?.click()}
-                  className="flex w-full flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#D1D1D6] bg-[#FAFAFA] px-6 py-10 text-[#1A1A1A] transition hover:border-[#2563EB] hover:bg-[#F0F4FF]"
+                  className="flex w-full flex-col items-center gap-3 rounded-lg border border-dashed border-[#D1D1D6] bg-[#F5F5F7] px-6 py-8 text-[#1A1A1A] transition hover:border-[#1A1A1A] hover:bg-[#F0F0F2]"
                 >
                   {previewUrl ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img
                       src={previewUrl}
                       alt="已上传商品"
-                      className="max-h-56 w-auto rounded-xl bg-white object-contain"
+                      className="max-h-52 w-auto rounded-lg bg-white object-contain"
                     />
                   ) : (
                     <>
-                      <span className="text-[#6B6B6E]">
+                      <span className="text-[#AEAEB2]">
                         <UploadIcon />
                       </span>
-                      <span className="text-sm font-medium">点击或拖拽上传</span>
-                      <span className="text-xs text-[#9A9A9E]">
-                        JPG · PNG · WEBP
-                      </span>
+                      <span className="text-sm font-medium text-[#6B6B6E]">点击或拖拽上传</span>
                     </>
                   )}
                 </button>
@@ -533,7 +567,7 @@ export default function Home() {
               />
 
               {previewUrl && (
-                <div className="flex w-full gap-3">
+                <div className="flex w-full gap-2">
                   <SecondaryButton onClick={() => inputRef.current?.click()}>
                     重新上传
                   </SecondaryButton>
@@ -541,15 +575,28 @@ export default function Home() {
                 </div>
               )}
 
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-[#6B6B6E]">
+                  产品描述 <span className="font-normal text-[#AEAEB2]">（可选）</span>
+                </label>
+                <input
+                  type="text"
+                  value={productDescription}
+                  onChange={(e) => setProductDescription(e.target.value)}
+                  placeholder="如：护发素、洗发水、身体乳……"
+                  className="rounded-lg border border-[#E8E8EA] bg-[#F5F5F7] px-3 py-2 text-sm outline-none focus:border-[#1A1A1A] focus:bg-white"
+                />
+              </div>
+
               {error && (
-                <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                   {error}
                 </p>
               )}
 
               {notice && (
-                <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
-                  <span aria-hidden="true">💡</span>
+                <div className="flex gap-2 rounded-lg border border-[#E8E8EA] bg-[#F5F5F7] px-3 py-2.5 text-xs text-[#6B6B6E]">
+                  <span aria-hidden="true">ℹ</span>
                   <span>{notice}</span>
                 </div>
               )}
@@ -566,20 +613,22 @@ export default function Home() {
     if (step === "analyzing") {
       return (
         <Card>
-          <div className="flex flex-col items-center gap-3 py-8">
+          <div className="flex flex-col items-center gap-4 py-6">
             {previewUrl && (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img
                 src={previewUrl}
                 alt="已上传商品"
-                className="max-h-40 w-auto rounded-xl border border-[#E5E5E7] bg-white object-contain"
+                className="max-h-36 w-auto rounded-lg border border-[#E8E8EA] bg-white object-contain"
               />
             )}
-            <div className="h-1.5 w-32 overflow-hidden rounded-full bg-[#E5E5E7]">
-              <div className="h-full w-1/2 animate-pulse bg-[#2563EB]" />
+            <div className="flex flex-col items-center gap-2">
+              <svg className="spin-slow text-[#1A1A1A]" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+              <p className="text-sm font-medium text-[#1A1A1A]">AI 分析中</p>
+              <p className="text-xs text-[#AEAEB2]">通常 10–20 秒</p>
             </div>
-            <p className="text-sm font-medium text-[#1A1A1A]">AI 正在分析产品...</p>
-            <p className="text-xs text-[#6B6B6E]">通常 10-20 秒</p>
           </div>
         </Card>
       );
@@ -636,13 +685,26 @@ export default function Home() {
     if (step === "input") {
       return (
         <Card>
-          <div className="flex flex-col gap-3 text-sm text-[#6B6B6E]">
-            <h3 className="text-base font-semibold text-[#1A1A1A]">使用说明</h3>
-            <p>1. 上传一张清晰的护肤品产品图(白底或简单背景效果最好)</p>
-            <p>2. AI 自动识别产品并生成专业方案</p>
-            <p>3. 一次得到 3 张拼多多可用的商品图</p>
-            <div className="mt-2 rounded-xl bg-[#F0F4FF] p-3 text-xs text-[#2563EB]">
-              💡 当前优化方向:拼多多护肤品类
+          <div className="flex flex-col gap-4 text-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-[#AEAEB2]">工作流说明</p>
+            <div className="flex flex-col gap-3">
+              {[
+                { step: "01", label: "上传商品图", desc: "白底或简单背景效果最佳" },
+                { step: "02", label: "AI 分析方案", desc: "识别品类、卖点、视觉风格" },
+                { step: "03", label: "确认并编辑文案", desc: "可修改每张图的标题与卖点" },
+                { step: "04", label: "生成 4 张场景图", desc: "拼多多主图规格，可直接上传" },
+              ].map(({ step: s, label, desc }) => (
+                <div key={s} className="flex gap-3">
+                  <span className="mt-0.5 shrink-0 text-[11px] font-semibold text-[#AEAEB2]">{s}</span>
+                  <div>
+                    <p className="text-sm font-medium text-[#1A1A1A]">{label}</p>
+                    <p className="text-xs text-[#AEAEB2]">{desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="rounded-lg bg-[#F5F5F7] px-3 py-2.5 text-xs text-[#6B6B6E]">
+              当前支持品类：护肤品（面霜、精华、洁面、防晒等）
             </div>
           </div>
         </Card>
@@ -653,11 +715,22 @@ export default function Home() {
       return (
         <Card>
           <div className="flex flex-col gap-3">
-            <div className="h-3 w-2/3 animate-pulse rounded bg-[#E5E5E7]" />
-            <div className="h-3 w-1/2 animate-pulse rounded bg-[#E5E5E7]" />
-            <div className="h-3 w-3/4 animate-pulse rounded bg-[#E5E5E7]" />
-            <div className="h-3 w-1/2 animate-pulse rounded bg-[#E5E5E7]" />
-            <p className="mt-2 text-xs text-[#6B6B6E]">方案即将生成...</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-[#AEAEB2]">分析进行中</p>
+            <div className="flex flex-col gap-2.5 pt-1">
+              {[
+                "识别产品品类与外观特征",
+                "提取核心卖点与差异化优势",
+                "规划 4 张场景图方案",
+                "生成每张图独立文案",
+              ].map((label, i) => (
+                <div key={i} className="flex items-center gap-2.5">
+                  <div className="skeleton h-2 w-2 shrink-0 rounded-full" />
+                  <div className="skeleton h-2.5 rounded" style={{ width: `${60 + i * 8}%` }} />
+                  <span className="sr-only">{label}</span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-[#AEAEB2]">方案即将生成...</p>
           </div>
         </Card>
       );
@@ -733,33 +806,148 @@ export default function Home() {
               </ul>
             </CardSection>
           </Card>
+
+          {Object.keys(editedCopies).length > 0 && plan && (
+            <Card>
+              <CardSection title="文案编辑（按场景）">
+                <div className="flex flex-col gap-6 pt-1">
+                  {plan.image_plan.map((item) => {
+                    const c = editedCopies[item.id];
+                    if (!c) return null;
+                    const setC = (updater: (prev: CopyData) => CopyData) =>
+                      setEditedCopies((prev) => ({ ...prev, [item.id]: updater(prev[item.id]) }));
+                    return (
+                      <div key={item.id} className="flex flex-col gap-3 rounded-xl border border-[#E5E5E7] p-3">
+                        <p className="text-xs font-semibold text-[#1A1A1A]">{item.title}</p>
+
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[11px] text-[#6B6B6E]">主标题</label>
+                          <input type="text" value={c.main_title}
+                            onChange={(e) => setC((p) => ({ ...p, main_title: e.target.value }))}
+                            className="rounded-lg border border-[#E5E5E7] bg-[#FAFAFA] px-3 py-1.5 text-sm outline-none focus:border-[#2563EB] focus:bg-white" />
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[11px] text-[#6B6B6E]">副标题</label>
+                          <input type="text" value={c.sub_title}
+                            onChange={(e) => setC((p) => ({ ...p, sub_title: e.target.value }))}
+                            className="rounded-lg border border-[#E5E5E7] bg-[#FAFAFA] px-3 py-1.5 text-sm outline-none focus:border-[#2563EB] focus:bg-white" />
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[11px] text-[#6B6B6E]">卖点（3条）</label>
+                          {c.bullets.map((b, i) => (
+                            <input key={i} type="text" value={b}
+                              onChange={(e) => setC((p) => { const bullets = [...p.bullets]; bullets[i] = e.target.value; return { ...p, bullets }; })}
+                              className="rounded-lg border border-[#E5E5E7] bg-[#FAFAFA] px-3 py-1.5 text-sm outline-none focus:border-[#2563EB] focus:bg-white"
+                              placeholder={`卖点 ${i + 1}`} />
+                          ))}
+                        </div>
+
+                        <button type="button"
+                          onClick={() => setC(() => ({ ...item.copy, bullets: [...item.copy.bullets], side_badges: [...item.copy.side_badges] }))}
+                          className="self-start text-[11px] text-[#6B6B6E] underline underline-offset-2 hover:text-[#1A1A1A]">
+                          恢复此场景原始文案
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardSection>
+            </Card>
+          )}
         </div>
       );
     }
 
     if ((step === "generating" || step === "complete") && results.length > 0) {
+      const doneCount = results.filter((r) => r.status === "done").length;
       return (
         <div className="flex flex-col gap-4">
-          {step === "complete" && (
-            <div className="flex items-center gap-2 rounded-2xl border border-[#22C55E]/30 bg-[#F0FDF4] px-4 py-3">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#22C55E] text-white">
-                <CheckIcon />
-              </span>
-              <div className="flex flex-col">
-                <p className="text-sm font-semibold text-[#16A34A]">生成完成</p>
-                <p className="text-xs text-[#16A34A]/80">
-                  {results.filter((r) => r.status === "done").length}/{results.length}{" "}
-                  张已生成
-                </p>
+          {/* Status bar */}
+          <div className="flex items-center justify-between rounded-xl border border-[#E8E8EA] bg-white px-4 py-3">
+            <div className="flex items-center gap-2">
+              {step === "complete" ? (
+                <>
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#1A1A1A] text-white">
+                    <CheckIcon />
+                  </span>
+                  <span className="text-sm font-medium text-[#1A1A1A]">生成完成</span>
+                </>
+              ) : (
+                <>
+                  <svg className="spin-slow text-[#1A1A1A]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg>
+                  <span className="text-sm font-medium text-[#1A1A1A]">生成中</span>
+                </>
+              )}
+            </div>
+            <span className="text-xs text-[#AEAEB2]">{doneCount} / {results.length} 张完成</span>
+          </div>
+
+          {/* Score */}
+          {step === "complete" && score && (
+            <div className="rounded-xl border border-[#E8E8EA] bg-white px-4 py-3">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-[#AEAEB2]">文案评分</p>
+                <span className="rounded bg-[#F0F0F2] px-2 py-0.5 text-[10px] text-[#6B6B6E]">规则评分 · 仅供参考</span>
               </div>
+              <div className="grid grid-cols-4 gap-2">
+                {([
+                  { label: "CTR 潜力", value: score.ctrPotential },
+                  { label: "主体清晰", value: score.subjectClarity },
+                  { label: "平台匹配", value: score.pddMatch },
+                  { label: "AI 模板感", value: score.aiTemplateFeeling, invert: true },
+                ] as { label: string; value: number; invert?: boolean }[]).map(({ label, value, invert }) => {
+                  const good = invert ? value < 60 : value >= 70;
+                  const mid = invert ? value < 75 : value >= 55;
+                  const color = good ? "#1A1A1A" : mid ? "#D97706" : "#DC2626";
+                  return (
+                    <div key={label} className="flex flex-col items-center gap-1 rounded-lg bg-[#F5F5F7] py-2.5">
+                      <span className="text-[10px] text-[#AEAEB2]">{label}</span>
+                      <span className="text-base font-semibold" style={{ color }}>{value}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-[10px] text-[#AEAEB2]">AI 模板感越低越好</p>
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Image workflow — vertical list like an e-commerce detail page */}
+          <div className="flex flex-col gap-3">
             {results.map((r, i) => (
-              <Card key={i} className="!p-3">
-                <div className="flex flex-col gap-2">
-                  <div className="aspect-square w-full overflow-hidden rounded-xl border border-[#E5E5E7] bg-[#FAFAFA]">
+              <div key={i} className="rounded-xl border border-[#E8E8EA] bg-white overflow-hidden">
+                <div className="flex items-center justify-between border-b border-[#F0F0F2] px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-5 w-5 items-center justify-center rounded bg-[#F0F0F2] text-[10px] font-semibold text-[#6B6B6E]">
+                      {i + 1}
+                    </span>
+                    <span className="text-sm font-medium text-[#1A1A1A]">{r.planItem.title}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {r.status === "done" && (
+                      <span className="rounded bg-[#F0F0F2] px-2 py-0.5 text-[10px] text-[#6B6B6E]">800×800</span>
+                    )}
+                    {r.status === "loading" && (
+                      <span className="text-[11px] text-[#AEAEB2]">生成中...</span>
+                    )}
+                    {r.status === "composing" && (
+                      <span className="text-[11px] text-[#AEAEB2]">合成文案...</span>
+                    )}
+                    {r.status === "pending" && (
+                      <span className="text-[11px] text-[#AEAEB2]">等待中</span>
+                    )}
+                    {r.status === "error" && (
+                      <span className="text-[11px] text-red-500">失败</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex gap-4 p-4">
+                  {/* Image */}
+                  <div className="aspect-square w-48 shrink-0 overflow-hidden rounded-lg border border-[#E8E8EA] bg-[#F5F5F7]">
                     {r.status === "done" && (r.composedUrl || r.imageUrl) ? (
                       /* eslint-disable-next-line @next/next/no-img-element */
                       <img
@@ -769,53 +957,60 @@ export default function Home() {
                       />
                     ) : r.status === "error" ? (
                       <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-3 text-center">
-                        <span className="text-xs font-semibold text-red-600">
-                          生成失败
-                        </span>
-                        <span className="text-[10px] text-red-500">{r.error}</span>
+                        <span className="text-xs text-red-500">生成失败</span>
                       </div>
                     ) : (
-                      <div className="flex h-full w-full animate-pulse items-center justify-center bg-[#F0F0F2]">
-                        <span className="text-xs text-[#9A9A9E]">
-                          {r.status === "loading"
-                            ? "生成中..."
-                            : r.status === "composing"
-                              ? "合成文案中..."
-                              : "等待中"}
-                        </span>
-                      </div>
+                      <div className="skeleton h-full w-full" />
                     )}
                   </div>
-                  <div className="flex flex-col gap-0.5 px-1">
-                    <p className="text-sm font-medium text-[#1A1A1A]">
-                      {r.planItem.title}
-                    </p>
-                    <p className="truncate text-[11px] text-[#9A9A9E]">
-                      {r.planItem.purpose}
-                    </p>
+
+                  {/* Meta */}
+                  <div className="flex flex-1 flex-col justify-between gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <p className="text-[11px] font-semibold uppercase tracking-widest text-[#AEAEB2]">场景说明</p>
+                      <p className="text-sm text-[#1A1A1A]">{r.planItem.purpose}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      {r.status === "done" ? (
+                        <button
+                          type="button"
+                          onClick={() => downloadOne(i)}
+                          className="rounded-lg bg-[#1A1A1A] px-4 py-2 text-xs font-medium text-white transition hover:bg-[#333]"
+                        >
+                          下载
+                        </button>
+                      ) : r.status === "error" ? (
+                        <button
+                          type="button"
+                          onClick={() => { if (imageDataUrl) generateOne(r.planItem, i, imageDataUrl); }}
+                          className="rounded-lg border border-[#E8E8EA] px-4 py-2 text-xs font-medium text-[#1A1A1A] transition hover:bg-[#F5F5F7]"
+                        >
+                          重试
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
-                  {r.status === "done" ? (
-                    <GreenButton onClick={() => downloadOne(i)}>下载图片</GreenButton>
-                  ) : r.status === "error" ? (
-                    <SecondaryButton
-                      onClick={() => {
-                        if (imageDataUrl) generateOne(r.planItem, i, imageDataUrl);
-                      }}
-                    >
-                      重试
-                    </SecondaryButton>
-                  ) : (
-                    <div className="h-9" />
-                  )}
                 </div>
-              </Card>
+              </div>
             ))}
           </div>
 
           {step === "complete" && (
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <GreenButton onClick={downloadAll}>批量下载</GreenButton>
-              <SecondaryButton onClick={regenerateAll}>重新生成</SecondaryButton>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={downloadAll}
+                className="flex-1 rounded-lg bg-[#1A1A1A] px-5 py-2.5 text-sm font-medium text-white transition hover:bg-[#333]"
+              >
+                批量下载
+              </button>
+              <button
+                type="button"
+                onClick={regenerateAll}
+                className="flex-1 rounded-lg border border-[#E8E8EA] bg-white px-5 py-2.5 text-sm font-medium text-[#1A1A1A] transition hover:bg-[#F5F5F7]"
+              >
+                重新生成
+              </button>
             </div>
           )}
         </div>
@@ -826,22 +1021,35 @@ export default function Home() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col bg-[#F7F7F8] text-[#1A1A1A]">
-      <div className="mx-auto flex w-full max-w-[1100px] flex-1 flex-col gap-6 px-4 py-6 sm:py-8">
-        <header className="flex flex-col gap-1">
-          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
-            轻图 LightPic · AI商品图生成
-          </h1>
-          <p className="text-xs text-[#6B6B6E] sm:text-sm">
-            上传商品图,10秒生成专业电商场景图
-          </p>
+    <main className="flex min-h-screen flex-col bg-[#F5F5F7] text-[#1A1A1A]">
+      <div className="mx-auto flex w-full max-w-[1100px] flex-1 flex-col gap-5 px-4 py-5 sm:py-7">
+
+        {/* Header */}
+        <header className="flex items-center justify-between border-b border-[#E8E8EA] pb-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1A1A1A]">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M3 9h18M9 21V9" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-sm font-semibold tracking-tight text-[#1A1A1A]">LightPic</h1>
+              <p className="text-[11px] text-[#AEAEB2]">AI 电商主图生成</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="rounded-md bg-[#F0F0F2] px-2.5 py-1 text-[11px] font-medium text-[#6B6B6E]">拼多多</span>
+            <span className="rounded-md bg-[#F0F0F2] px-2.5 py-1 text-[11px] font-medium text-[#6B6B6E]">护肤品类</span>
+          </div>
         </header>
 
-        <Card className="!p-4">
+        {/* Step bar */}
+        <div className="rounded-xl border border-[#E8E8EA] bg-white px-5 py-4">
           <StepIndicator current={step} />
-        </Card>
+        </div>
 
-        <div className="grid flex-1 grid-cols-1 gap-6 lg:grid-cols-[minmax(280px,360px)_1fr]">
+        <div className="grid flex-1 grid-cols-1 gap-5 lg:grid-cols-[minmax(280px,340px)_1fr]">
           <div className="flex flex-col gap-4">
             {renderLeftPane()}
           </div>
@@ -850,8 +1058,8 @@ export default function Home() {
           </div>
         </div>
 
-        <footer className="mt-auto pt-6 text-center text-xs text-[#9A9A9E]">
-          轻图 LightPic · AI驱动的电商商品图工具
+        <footer className="mt-auto pt-4 text-center text-[11px] text-[#AEAEB2]">
+          LightPic · 轻图 · AI 驱动的电商商品图工具
         </footer>
       </div>
     </main>
