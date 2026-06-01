@@ -1,113 +1,241 @@
-import Anthropic from "@anthropic-ai/sdk";
+// Shiyun proxy requires "Authorization: Bearer <key>" instead of "x-api-key".
+// We use raw fetch so we control the auth header; the SDK sends x-api-key which
+// Shiyun silently rejects with a 502.
+async function callClaudeViaShiyun(
+  endpoint: string,
+  apiKey: string,
+  payload: Record<string, unknown>,
+): Promise<unknown> {
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${text.slice(0, 300)}`);
+  }
+  return res.json();
+}
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const SYSTEM_PROMPT = `你是中国电商商品图营销专家,专门服务拼多多护肤品类卖家。
+const SYSTEM_PROMPT = `你是拼多多护肤品/美妆商品图方案专家。
 
-【非护肤品分支(必须先判断)】
-如果用户上传的图片**不是护肤品**(护肤品包括:面霜、乳液、精华液、化妆水/爽肤水、洁面、防晒、面膜、眼霜、唇膏、护肤套装等),
-请只输出以下格式的 JSON,不要做任何其他分析,也不要尝试硬套护肤品方案:
+【重要：输出格式规则】
+你的回复必须是且只能是一个 JSON 对象。
+- 第一个字符必须是 {
+- 最后一个字符必须是 }
+- 不要输出任何 Markdown、标题、列表、代码块、开场白、结尾语、分析说明
+- 不要输出 \`\`\`json 或 \`\`\`
+- 不要输出任何 JSON 以外的内容
 
-{"unsupported": true, "reason": "<一句中文说明,告诉用户检测到的是什么品类,以及目前 LightPic 只支持护肤品>"}
+【非护肤品/美妆分支】
+如果图片不是护肤品或美妆品，只输出：
+{"unsupported": true, "reason": "<一句中文说明检测到的品类，以及目前只支持护肤品和美妆品>"}
 
-reason 示例:"检测到这是充电宝/数码周边类商品。LightPic 目前只支持护肤品类(面霜、精华、洁面、防晒等),其他品类我们正在筹备中,敬请期待。"
+【护肤品/美妆分支】
+输出以下 6 个字段的 JSON：
 
-【护肤品分支】
-如果是护肤品,按下面要求输出完整的商品图生成方案。
+1. product_type: 中文产品类型，如"防晒霜"、"面霜"、"精华液"
+2. selling_points: 最多 3 条核心卖点，每条 ≤15 字，用户结果语言。禁止：玻璃肌、焕变、深层滋养、科技配方、成分可视化、医疗级功效、祛痘祛斑美白
+3. pain_points: 最多 3 条用户痛点，每条 ≤15 字，如"夏天出油脱妆"、"干皮上妆起皮"
+4. visual_style: 一句话视觉风格，≤20 字，拼多多电商风格，如"清爽白底强产品感"
+5. main_title: 主标题，≤12 字，直接说用户结果，禁止空泛词
+6. subtitle: 副标题，≤16 字，强化主标题承诺
 
-你的任务: 分析用户上传的护肤品产品图,输出一份完整的商品图生成方案。
-
-输出要求:
-1. product_type: 用中文识别产品类型(如"面霜"、"精华液"、"洁面"、"防晒"等)
-2. visual_features: 用中文描述产品的视觉特征(包装颜色、瓶型、材质、质感)
-3. selling_points: 提炼 3 个核心卖点,用拼多多用户能感知到的运营语言(如"温和不刺激、敏感肌可用"、"专研补水保湿、改善干燥"、"小巧便携、随身可用"),不要太抽象
-4. visual_style: 用一句话定位整体视觉风格(如"清爽日系护肤风"、"高级精致科技护肤风"、"温柔少女氛围风")
-5. color_system: 主色调描述,2-3 种颜色,用中文(如"米白色 + 浅木色 + 嫩芽绿")
-6. image_plan: 3 张图片的具体规划,顺序固定:
-   - 图1 白底主图 (用于拼多多搜索/列表展示,750×750 白底,产品居中)
-   - 图2 场景生活图 (用于详情页氛围)
-   - 图3 细节特写图 (用于突出卖点)
-
-每张图必须包含:
-- title: 中文标题(如"白底主图"、"场景生活图"、"细节特写图")
-- purpose: 中文用途说明,一句话
-- prompt: 英文 prompt,用于发给 image-edit 模型生成。重点强调"保留产品本体不变,只改变环境/光照/背景/构图",并融入上面识别到的视觉特征和风格定位。每条 prompt 80-150 词。**关键:必须显式要求生成的底图不出现任何文字、标签、水印、文案叠加 (no text, no labels, no watermarks, no copy overlays, no Chinese characters in the scene)**,因为最终的中文标题和卖点会由前端 Canvas 在底图上叠加合成。
-
-7. copy: 中文营销文案,用于前端 Canvas 在底图上叠加合成。必须包含以下字段:
-   - main_title: 主标题,8-14 个汉字,营销冲击力强(如"防晒不透皮 温和不用卸"、"粉胶囊防晒 美白更稳白")
-   - sub_title: 副标题,3-20 字,可含数字 / 英文 / 符号(如"SPF50+ PA++++"、"3.0 遇光更耐晒"、"专为户外场景设计")
-   - bullets: 3 条勾选式短卖点,每条 4-8 个汉字(如["安全免渗透","水润无负担","特护敏感肌"])
-   - side_badges: 2 个角标短句,每条 4-8 个汉字(如["光电后1天可用","免卸妆更护屏"])
-   - new_badge: 1 个圆形 NEW 角标短句,3-8 字(如"NEW 光胶囊"、"粉胶囊3.0",如确实没有合适的就返回空字符串 "")
-   - brand: 品牌英文/中文名,如包装上能识别出品牌则填(如"OSITREE"),否则返回空字符串 ""
-
-严格输出格式要求(必须遵守,两个分支都适用):
-- 直接输出一个合法的 JSON 对象,不要任何前后说明文字
-- 不要使用 markdown 代码块(不要 \`\`\`json 也不要 \`\`\`)
-- 不要在 JSON 之前或之后加"好的"、"以下是"、"方案如下"、"我注意到"之类的话
-- 第一个字符必须是 {,最后一个字符必须是 }
-- 护肤品分支:顶层字段必须严格是 product_type, visual_features, selling_points, visual_style, color_system, image_plan, copy;image_plan 数组必须有 3 个对象,id 依次是 "white-bg", "lifestyle-scene", "detail-closeup"
-- 非护肤品分支:顶层字段必须严格是 unsupported, reason;不要再输出其他字段`;
+输出示例（严格按此格式）：
+{"product_type":"防晒霜","selling_points":["SPF50+全效防晒","清爽不泛白","修护屏障"],"pain_points":["涂防晒闷痘搓泥","晒后泛红敏感","夏天防晒又油腻"],"visual_style":"粉白清爽极简产品感","main_title":"防晒不泛白素颜透亮","subtitle":"SPF50+全天候抵御紫外线"}`;
 
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
     product_type: { type: "string" },
-    visual_features: { type: "string" },
-    selling_points: {
-      type: "array",
-      items: { type: "string" },
-    },
+    selling_points: { type: "array", items: { type: "string" } },
+    pain_points: { type: "array", items: { type: "string" } },
     visual_style: { type: "string" },
-    color_system: { type: "string" },
-    image_plan: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          id: {
-            type: "string",
-            enum: ["white-bg", "lifestyle-scene", "detail-closeup"],
-          },
-          title: { type: "string" },
-          purpose: { type: "string" },
-          prompt: { type: "string" },
-        },
-        required: ["id", "title", "purpose", "prompt"],
-      },
-    },
-    copy: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        main_title: { type: "string" },
-        sub_title: { type: "string" },
-        bullets: { type: "array", items: { type: "string" } },
-        side_badges: { type: "array", items: { type: "string" } },
-        new_badge: { type: "string" },
-        brand: { type: "string" },
-      },
-      required: ["main_title", "sub_title", "bullets", "side_badges", "new_badge", "brand"],
-    },
+    main_title: { type: "string" },
+    subtitle: { type: "string" },
   },
-  required: [
-    "product_type",
-    "visual_features",
-    "selling_points",
-    "visual_style",
-    "color_system",
-    "image_plan",
-    "copy",
-  ],
+  required: ["product_type", "selling_points", "pain_points", "visual_style", "main_title", "subtitle"],
 };
+
+const PAIN_WORDS = ["不卡粉","不假白","持妆","控油","遮瑕","通勤","不斑驳","干皮","起皮","换季","紧绷","保湿","不油腻","睡前","妆前","不搓泥","敏感肌","不刺痛","不闷痘","不泛红","补水","锁水","提亮","黄黑皮","熬夜","军训","暴晒","防晒","修护","滋润","轻薄","快速吸收"];
+const VAGUE_WORDS = ["自然清新","日常必备","深层滋养","焕新","温和提亮"];
+
+function scoreplan(plan: unknown): { ctrPotential: number; subjectClarity: number; pddMatch: number; aiTemplateFeeling: number; scoreSource: string } {
+  let ctr = 60;
+  let pdd = 60;
+  const aiTemplate = 50; // canvas template感，前端固定展示，后续可扩展
+
+  if (typeof plan === "object" && plan !== null && "image_plan" in plan) {
+    const imagePlan = (plan as { image_plan?: unknown[] }).image_plan ?? [];
+    for (const scene of imagePlan) {
+      if (typeof scene !== "object" || scene === null) continue;
+      const copy = (scene as { copy?: { main_title?: string; bullets?: string[] } }).copy;
+      if (!copy) continue;
+      const allText = [copy.main_title ?? "", ...(copy.bullets ?? [])].join(" ");
+      for (const w of PAIN_WORDS) {
+        if (allText.includes(w)) { ctr += 4; pdd += 3; }
+      }
+      for (const w of VAGUE_WORDS) {
+        // 空泛词单独出现（前后无其他实质词）扣分
+        const standalone = new RegExp(`(^|[^\\u4e00-\\u9fa5])${w}([^\\u4e00-\\u9fa5]|$)`);
+        if (standalone.test(allText)) { ctr -= 8; pdd -= 6; }
+      }
+    }
+  }
+
+  return {
+    ctrPotential: Math.min(99, Math.max(10, ctr)),
+    subjectClarity: 55, // 无法从文本判断图像主体，给中性值
+    pddMatch: Math.min(99, Math.max(10, pdd)),
+    aiTemplateFeeling: aiTemplate,
+    scoreSource: "rule_demo",
+  };
+}
 
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
 
 function jsonResponse(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
+}
+
+// ---------------------------------------------------------------------------
+// Server-side hard filter — runs after Claude returns image_plan.
+// Any scene whose role/title/purpose/prompt hits a banned keyword is replaced
+// wholesale with a safe fallback template. Code-level enforcement, independent
+// of whether Claude followed the system prompt.
+// ---------------------------------------------------------------------------
+
+const BANNED_KEYWORDS = [
+  // people / models
+  "真人", "模特", "人脸", "人体", "人物", "脸部", "皮肤变化",
+  "model", "human face", "skin transformation",
+  // before/after
+  "妆前", "妆后", "前后对比", "使用前", "使用后",
+  "before and after", "before/after", "comparison shot",
+  // effect claims
+  "玻璃肌", "焕变", "变白", "美白", "祛斑", "祛痘",
+  "whitening", "brightening effect", "skin transformation",
+  // tech / ingredient
+  "科技配方", "成分可视化", "专利", "实验室", "医美", "临床", "配方图",
+  "ingredient visualization", "formula diagram", "lab", "clinical", "patent",
+  // shade count
+  "色号",
+];
+
+type SceneShape = {
+  id: string;
+  role?: string;
+  layout_variant?: string;
+  title?: string;
+  purpose?: string;
+  prompt?: string;
+  copy?: unknown;
+};
+
+const SAFE_FALLBACKS: Record<string, Omit<SceneShape, "id" | "copy">> = {
+  "主视觉图": {
+    role: "主视觉图",
+    layout_variant: "A",
+    title: "产品主视觉",
+    purpose: "白底极简背景，产品正面居中，突出包装质感和品牌标识",
+    prompt:
+      "CRITICAL PRODUCT FIDELITY: Do NOT alter the product's structure, shape, cap proportions, body color, material finish, logo position, label text, or packaging design in any way. Do NOT add extra caps, bottles, bases, or accessories that do not exist in the original. This must be the exact same SKU as the original photo — only the background, lighting, and environment may change. " +
+      "The product must be LARGE and DOMINANT, filling at least 50% of frame height. " +
+      "No human faces, no human bodies, no hands, no models, no skin. No text, no labels, no watermarks, no overlays. " +
+      "Pure white or very light neutral background. Product centered, front-facing, even soft lighting that highlights packaging texture and brand identity. Minimalist composition, no props.",
+  },
+  "质地/妆感图": {
+    role: "质地/妆感图",
+    layout_variant: "C",
+    title: "质地细节特写",
+    purpose: "产品局部特写，展示瓶身材质和质地细节，柔和侧光，背景简洁",
+    prompt:
+      "CRITICAL PRODUCT FIDELITY: Do NOT alter the product's structure, shape, cap proportions, body color, material finish, logo position, label text, or packaging design in any way. Do NOT add extra caps, bottles, bases, or accessories that do not exist in the original. This must be the exact same SKU as the original photo — only the background, lighting, and environment may change. " +
+      "The product must be LARGE and DOMINANT, filling at least 50% of frame height. " +
+      "No human faces, no human bodies, no hands, no models, no skin. No text, no labels, no watermarks, no overlays. " +
+      "Close-up shot emphasizing the product's surface texture and material finish. Soft side lighting, simple neutral background. No ingredient diagrams, no technology graphics, no before/after elements.",
+  },
+  "使用场景图": {
+    role: "使用场景图",
+    layout_variant: "D",
+    title: "日常使用场景",
+    purpose: "梳妆台或浴室台面场景，产品自然摆放，氛围真实，不出现人物",
+    prompt:
+      "CRITICAL PRODUCT FIDELITY: Do NOT alter the product's structure, shape, cap proportions, body color, material finish, logo position, label text, or packaging design in any way. Do NOT add extra caps, bottles, bases, or accessories that do not exist in the original. This must be the exact same SKU as the original photo — only the background, lighting, and environment may change. " +
+      "The product must be LARGE and DOMINANT, filling at least 50% of frame height. " +
+      "No human faces, no human bodies, no hands, no models, no skin. No text, no labels, no watermarks, no overlays. " +
+      "Lifestyle scene: product placed naturally on a dressing table or bathroom countertop. Warm ambient light, clean and uncluttered. At most one or two simple props. No people, no before/after elements.",
+  },
+  "卖点信息图": {
+    role: "卖点信息图",
+    layout_variant: "B",
+    title: "卖点展示图",
+    purpose: "产品偏右，左侧大面积留白供文案叠加，背景干净纯色",
+    prompt:
+      "CRITICAL PRODUCT FIDELITY: Do NOT alter the product's structure, shape, cap proportions, body color, material finish, logo position, label text, or packaging design in any way. Do NOT add extra caps, bottles, bases, or accessories that do not exist in the original. This must be the exact same SKU as the original photo — only the background, lighting, and environment may change. " +
+      "The product must be LARGE and DOMINANT, filling at least 50% of frame height. " +
+      "No human faces, no human bodies, no hands, no models, no skin. No text, no labels, no watermarks, no overlays. " +
+      "Product positioned on the right side of frame, large empty space on the left for copy overlay. Clean solid or very subtle gradient background. No props, no clutter.",
+  },
+};
+
+const ROLE_ORDER = ["主视觉图", "质地/妆感图", "使用场景图", "卖点信息图"] as const;
+
+function sceneHitsBan(scene: SceneShape): boolean {
+  const haystack = [
+    scene.role ?? "",
+    scene.title ?? "",
+    scene.purpose ?? "",
+    scene.prompt ?? "",
+  ].join(" ").toLowerCase();
+  return BANNED_KEYWORDS.some((kw) => haystack.includes(kw.toLowerCase()));
+}
+
+function sanitizeImagePlan(rawPlan: unknown): unknown {
+  if (typeof rawPlan !== "object" || rawPlan === null || !("image_plan" in rawPlan)) {
+    return rawPlan;
+  }
+  const plan = rawPlan as Record<string, unknown>;
+  const scenes = Array.isArray(plan.image_plan) ? plan.image_plan : [];
+
+  const sanitized = scenes.map((scene, idx) => {
+    const s = (typeof scene === "object" && scene !== null ? scene : {}) as SceneShape;
+    const roleForSlot = ROLE_ORDER[idx] ?? ROLE_ORDER[0];
+
+    if (sceneHitsBan(s)) {
+      console.warn(
+        `[analyze] scene ${s.id ?? idx} hit ban filter (role="${s.role}", title="${s.title}") — replacing with safe fallback "${roleForSlot}"`,
+      );
+      return { ...s, ...SAFE_FALLBACKS[roleForSlot], id: s.id ?? `scene-${idx + 1}` };
+    }
+
+    // Enforce correct role/layout for this slot even if not banned.
+    if (s.role !== roleForSlot || s.layout_variant !== SAFE_FALLBACKS[roleForSlot].layout_variant) {
+      console.warn(
+        `[analyze] scene ${s.id ?? idx} role/layout mismatch (got "${s.role}"/"${s.layout_variant}", expected "${roleForSlot}"/"${SAFE_FALLBACKS[roleForSlot].layout_variant}") — correcting`,
+      );
+      return { ...s, role: roleForSlot, layout_variant: SAFE_FALLBACKS[roleForSlot].layout_variant };
+    }
+
+    return s;
+  });
+
+  // Pad to 4 if Claude returned fewer scenes.
+  while (sanitized.length < 4) {
+    const idx = sanitized.length;
+    const roleForSlot = ROLE_ORDER[idx];
+    sanitized.push({ id: `scene-${idx + 1}`, ...SAFE_FALLBACKS[roleForSlot], copy: null });
+  }
+
+  return { ...plan, image_plan: sanitized.slice(0, 4) };
 }
 
 function jsonError(status: number, error: string, extra?: Record<string, unknown>): Response {
@@ -130,8 +258,10 @@ function jsonError(status: number, error: string, extra?: Record<string, unknown
 function extractJson(raw: string): unknown {
   const trimmed = raw.trim();
 
-  // 1. Strip ```json ... ``` or ``` ... ``` code fences.
-  const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  // 1. Find a ```json ... ``` or ``` ... ``` fence anywhere in the response.
+  //    Claude sometimes wraps the JSON in a fence even when asked not to,
+  //    and may add prose before/after the fence block.
+  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   const candidate = fenceMatch ? fenceMatch[1].trim() : trimmed;
 
   // 2. Direct parse.
@@ -172,7 +302,7 @@ export async function POST(req: Request): Promise<Response> {
     } catch (e) {
       return jsonError(400, "Invalid JSON body", { detail: String(e) });
     }
-    const { imageDataUrl } = (body ?? {}) as { imageDataUrl?: unknown };
+    const { imageDataUrl, productDescription } = (body ?? {}) as { imageDataUrl?: unknown; productDescription?: unknown };
     if (typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
       return jsonError(400, "Missing or invalid image");
     }
@@ -188,53 +318,71 @@ export async function POST(req: Request): Promise<Response> {
       return jsonError(400, `Unsupported media type: ${mediaType}`);
     }
 
-    const client = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) });
+    const messagesEndpoint = baseURL
+      ? `${baseURL.replace(/\/$/, "")}/v1/messages`
+      : "https://api.anthropic.com/v1/messages";
+    console.log("[analyze] endpoint:", messagesEndpoint);
 
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-5-20250929",
-      max_tokens: 4096,
-      system: [
-        {
-          type: "text",
-          text: SYSTEM_PROMPT,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      output_config: {
-        format: {
-          type: "json_schema",
-          schema: SCHEMA,
-        },
-      },
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: { type: "base64", media_type: mediaType as "image/jpeg" | "image/png" | "image/webp" | "image/gif", data: base64 },
-            },
-            {
-              type: "text",
-              text: "请分析这张护肤品产品图,按 schema 输出完整的商品图生成方案。",
-            },
-          ],
-        },
-      ],
-    });
+    const descHint =
+      typeof productDescription === "string" && productDescription.trim()
+        ? `\n\n用户补充说明：「${productDescription.trim()}」——请以此为准确认产品品类，不要仅依赖视觉推断。`
+        : "";
+
+    let claudeResp: unknown;
+    try {
+      claudeResp = await callClaudeViaShiyun(messagesEndpoint, apiKey, {
+        model: "claude-sonnet-4-5-20250929",
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image",
+                source: { type: "base64", media_type: mediaType, data: base64 },
+              },
+              {
+                type: "text",
+                text: `分析这张护肤品产品图。${descHint}
+
+你必须只输出一个 JSON 对象，格式如下，不要输出任何其他内容：
+{"product_type":"防晒霜","selling_points":["卖点1","卖点2","卖点3"],"pain_points":["痛点1","痛点2","痛点3"],"visual_style":"视觉风格描述","main_title":"主标题","subtitle":"副标题"}
+
+要求：
+- product_type：中文产品类型
+- selling_points：最多3条，每条≤15字，禁止：玻璃肌、焕变、深层滋养、科技配方、医疗级功效
+- pain_points：最多3条，每条≤15字
+- visual_style：≤20字，拼多多电商风格
+- main_title：≤12字，直接说用户结果
+- subtitle：≤16字
+
+只输出JSON，第一个字符是{，最后一个字符是}，不要Markdown，不要解释。`,
+              },
+            ],
+          },
+        ],
+      });
+    } catch (e) {
+      console.error("[analyze] Claude fetch failed:", String(e));
+      return jsonError(502, `Failed to reach Claude API: ${String(e)}`);
+    }
+
+    const response = claudeResp as {
+      usage?: { input_tokens?: number; output_tokens?: number };
+      content?: { type: string; text?: string }[];
+    };
 
     console.log(
       "[analyze] usage:",
       JSON.stringify({
-        input_tokens: response.usage.input_tokens,
-        output_tokens: response.usage.output_tokens,
-        cache_read: response.usage.cache_read_input_tokens,
-        cache_create: response.usage.cache_creation_input_tokens,
+        input_tokens: response.usage?.input_tokens,
+        output_tokens: response.usage?.output_tokens,
       }),
     );
 
-    const textBlock = response.content.find((b) => b.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
+    const textBlock = response.content?.find((b) => b.type === "text");
+    if (!textBlock || textBlock.type !== "text" || !textBlock.text) {
       return jsonError(502, "Claude returned no text block");
     }
 
@@ -273,16 +421,32 @@ export async function POST(req: Request): Promise<Response> {
       return jsonResponse(200, { unsupported: true, reason });
     }
 
-    console.log("[analyze] succeeded in", Date.now() - t0, "ms");
-    return jsonResponse(200, { plan });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    if (err instanceof Anthropic.APIError) {
-      console.error("[analyze] Anthropic API error:", err.status, err.type, err.message);
-      return jsonError(err.status ?? 502, `Claude API error: ${err.message}`, {
-        type: err.type,
+    // Schema guard: Claude sometimes returns a non-brief JSON (e.g. a composition
+    // schema or other structured doc). Reject anything missing the required fields
+    // so the front-end never receives a malformed brief.
+    const REQUIRED_FIELDS = ["product_type", "selling_points", "main_title"] as const;
+    const missingFields = REQUIRED_FIELDS.filter(
+      (f) => !(typeof plan === "object" && plan !== null && f in plan),
+    );
+    if (missingFields.length > 0) {
+      console.error(
+        "[analyze] brief schema mismatch — missing fields:",
+        missingFields,
+        "| rawText length:",
+        rawText.length,
+        "| rawPreview:",
+        rawText.slice(0, 200),
+      );
+      return jsonError(502, "Claude returned unexpected JSON structure (not a brief)", {
+        missingFields,
+        rawPreview: rawText.slice(0, 300),
       });
     }
+
+    console.log("[analyze] succeeded in", Date.now() - t0, "ms");
+    return jsonResponse(200, { brief: plan });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[analyze] uncaught:", message, err instanceof Error ? err.stack : undefined);
     return jsonResponse(500, { error: message });
   }

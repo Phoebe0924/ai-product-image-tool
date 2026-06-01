@@ -1,34 +1,41 @@
 /**
- * Canvas synthesis for LightPic — Template 1 v2: "Split 45/55"
+ * Canvas synthesis for LightPic — multi-layout Pinduoduo CTR style
  *
- * Layout (matches user's reference image #4 + user-chosen 45/55 split):
+ * Layout variants (assigned by scene id):
  *
- *   ┌─────────────────────────┬────────────────────────────────┐ 750×750
- *   │ MAIN TITLE              │                                │
- *   │ (two lines, bold)       │                                │
- *   │ SUB TITLE               │                                │
- *   │                         │                                │
- *   │ ✓ bullet                │      [PRODUCT HERO]            │
- *   │ ✓ bullet                │      (fitted contain)          │
- *   │ ✓ bullet                │                                │
- *   │                         │                       ┌──────┐ │
- *   │   ┌─────┐               │                       │麦穗 1│ │
- *   │   │ NEW │               │                       └──────┘ │
- *   │   └─────┘               │                                │
- *   │                         │                       ┌──────┐ │
- *   │                         │                       │麦穗 2│ │
- *   │ brand                   │                       └──────┘ │
- *   └─────────────────────────┴────────────────────────────────┘
- *           45% (0-337px)              55% (337-750px)
+ * A — 大居中偏左 + 顶部强痛点 + 无底条
+ *   ┌──────────────────────────────┐
+ *   │ MAIN TITLE (top, huge)       │
+ *   │                              │
+ *   │   [PRODUCT large, center-L]  │
+ *   │                    sub_title │
+ *   └──────────────────────────────┘
  *
- * Background strategy: sample the dominant color from the left edge of
- * the base image and fill the left 45% with it (with a soft vertical
- * gradient), creating the illusion that the scene extends leftward.
- * The right 55% shows the actual base image fitted with the same
- * sampled color as padding. Result: a single continuous "extended
- * scene" with text floating on the left side, no harsh column divider.
+ * B — 产品偏右 + 左侧痛点信息
+ *   ┌──────────────────────────────┐
+ *   │ MAIN TITLE (left, large)     │
+ *   │ ✓ bullet 1                   │
+ *   │ ✓ bullet 2   [PRODUCT right] │
+ *   │ sub_title                    │
+ *   └──────────────────────────────┘
  *
- * Fonts: self-hosted Noto Sans SC via next/font, read from CSS var.
+ * C — 产品近景/局部 + 底部小字说明
+ *   ┌──────────────────────────────┐
+ *   │                              │
+ *   │   [PRODUCT full-bleed]       │
+ *   │                              │
+ *   │ MAIN TITLE  sub_title        │
+ *   └──────────────────────────────┘
+ *
+ * D — 产品居中大图 + 顶部人群定向 + 底条
+ *   ┌──────────────────────────────┐
+ *   │ brand / 人群定向 (top-right) │
+ *   │   [PRODUCT center, large]    │
+ *   │                   ✓ bullet 1 │
+ *   │                   ✓ bullet 2 │
+ *   ├──────────────────────────────┤
+ *   │ sub_title (bottom banner)    │
+ *   └──────────────────────────────┘
  */
 
 export type CopyData = {
@@ -40,11 +47,8 @@ export type CopyData = {
   brand: string;
 };
 
-const CANVAS_SIZE = 750;
-const LEFT_W = Math.round(CANVAS_SIZE * 0.45); // 337
-const RIGHT_X = LEFT_W;
-const RIGHT_W = CANVAS_SIZE - LEFT_W;          // 413
-const LEFT_PAD = 32;
+const S = 750;
+const PAD = 32;
 
 function getFontFamily(): string {
   if (typeof document === "undefined") {
@@ -53,10 +57,8 @@ function getFontFamily(): string {
   const cssVar = getComputedStyle(document.documentElement)
     .getPropertyValue("--font-noto-sans-sc")
     .trim();
-  if (cssVar) {
-    return `${cssVar}, "PingFang SC", "Heiti SC", "Microsoft YaHei", sans-serif`;
-  }
-  return '"Noto Sans SC", "PingFang SC", "Heiti SC", "Microsoft YaHei", sans-serif';
+  if (cssVar) return `${cssVar}, "PingFang SC", "Heiti SC", "Microsoft YaHei", sans-serif`;
+  return '"PingFang SC", "Heiti SC", "Microsoft YaHei", sans-serif';
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -69,252 +71,25 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-/**
- * Sample the dominant color along the left edge of the image.
- * We render a 1×N strip to an offscreen canvas and average the pixels.
- * Returns CSS rgb() string and the average lightness 0..1.
- */
-function sampleLeftEdge(img: HTMLImageElement): {
-  rgb: string;
-  topRgb: string;
-  bottomRgb: string;
-  isDark: boolean;
-} {
-  const strip = document.createElement("canvas");
-  strip.width = 1;
-  strip.height = 32;
-  const sctx = strip.getContext("2d", { willReadFrequently: true });
-  if (!sctx) {
-    return {
-      rgb: "rgb(245,245,247)",
-      topRgb: "rgb(245,245,247)",
-      bottomRgb: "rgb(235,235,237)",
-      isDark: false,
-    };
-  }
-  // Draw the leftmost ~5% column of the source image, scaled into 1×32
-  const sw = Math.max(2, Math.floor(img.width * 0.05));
-  sctx.drawImage(img, 0, 0, sw, img.height, 0, 0, 1, 32);
-  const data = sctx.getImageData(0, 0, 1, 32).data;
-  let sumR = 0, sumG = 0, sumB = 0;
-  let topR = 0, topG = 0, topB = 0;
-  let botR = 0, botG = 0, botB = 0;
-  for (let y = 0; y < 32; y++) {
-    const r = data[y * 4];
-    const g = data[y * 4 + 1];
-    const b = data[y * 4 + 2];
-    sumR += r; sumG += g; sumB += b;
-    if (y < 10) { topR += r; topG += g; topB += b; }
-    if (y >= 22) { botR += r; botG += g; botB += b; }
-  }
-  const avgR = Math.round(sumR / 32);
-  const avgG = Math.round(sumG / 32);
-  const avgB = Math.round(sumB / 32);
-  const tR = Math.round(topR / 10);
-  const tG = Math.round(topG / 10);
-  const tB = Math.round(topB / 10);
-  const bR = Math.round(botR / 10);
-  const bG = Math.round(botG / 10);
-  const bB = Math.round(botB / 10);
-  // perceived luminance (Rec. 709)
-  const luma = (0.2126 * avgR + 0.7152 * avgG + 0.0722 * avgB) / 255;
-  return {
-    rgb: `rgb(${avgR},${avgG},${avgB})`,
-    topRgb: `rgb(${tR},${tG},${tB})`,
-    bottomRgb: `rgb(${bR},${bG},${bB})`,
-    isDark: luma < 0.45,
-  };
-}
-
-/** Draw image into target rect using object-fit: contain, fill rest with padColor. */
-function drawContain(
+function drawCover(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  padColor: string,
+  x: number, y: number, w: number, h: number,
 ) {
-  ctx.fillStyle = padColor;
-  ctx.fillRect(x, y, w, h);
-  const r = Math.min(w / img.width, h / img.height);
+  const r = Math.max(w / img.width, h / img.height);
   const dw = img.width * r;
   const dh = img.height * r;
-  const dx = x + (w - dw) / 2;
-  const dy = y + (h - dh) / 2;
-  ctx.drawImage(img, dx, dy, dw, dh);
+  ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
 }
 
-/** Auto line-break a long Chinese title into up to two lines. */
-function breakTitle(text: string, maxChars: number): [string, string] {
-  if (text.length <= maxChars) return [text, ""];
-  const spaceIdx = text.indexOf(" ", Math.floor(text.length / 2) - 2);
-  const splitAt = spaceIdx > 0 ? spaceIdx : Math.ceil(text.length / 2);
-  return [text.slice(0, splitAt).trim(), text.slice(splitAt).trim()];
-}
-
-/** Draw text with a soft halo (used when overlaying on photographic scene). */
-function fillWithHalo(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  haloColor: string,
-) {
-  ctx.shadowColor = haloColor;
-  ctx.shadowBlur = 6;
-  ctx.fillText(text, x, y);
-  ctx.shadowBlur = 0;
-}
-
-function drawLeftPanel(
-  ctx: CanvasRenderingContext2D,
-  copy: CopyData,
-  fontFamily: string,
-  textColor: string,
-  haloColor: string,
-) {
-  ctx.textAlign = "left";
-  let y = 48;
-
-  // Main title (2 lines, very bold)
-  const [line1, line2] = breakTitle(copy.main_title, 8);
-  ctx.fillStyle = textColor;
-  ctx.textBaseline = "top";
-  ctx.font = `900 44px ${fontFamily}`;
-  fillWithHalo(ctx, line1, LEFT_PAD, y, haloColor);
-  if (line2) {
-    y += 54;
-    fillWithHalo(ctx, line2, LEFT_PAD, y, haloColor);
+function splitTitle(text: string): [string, string] {
+  if (text.length <= 6) return [text, ""];
+  const mid = Math.floor(text.length / 2);
+  for (let d = 0; d <= mid; d++) {
+    if (text[mid - d] === " ") return [text.slice(0, mid - d).trim(), text.slice(mid - d).trim()];
+    if (text[mid + d] === " ") return [text.slice(0, mid + d).trim(), text.slice(mid + d).trim()];
   }
-  y += 64;
-
-  // Sub title
-  if (copy.sub_title) {
-    ctx.font = `700 22px ${fontFamily}`;
-    fillWithHalo(ctx, copy.sub_title, LEFT_PAD, y, haloColor);
-    y += 44;
-  } else {
-    y += 12;
-  }
-
-  // 3 ✓ bullets
-  y += 8;
-  ctx.font = `500 18px ${fontFamily}`;
-  ctx.textBaseline = "middle";
-  for (const b of (copy.bullets ?? []).slice(0, 3)) {
-    // checkmark
-    ctx.strokeStyle = textColor;
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.shadowColor = haloColor;
-    ctx.shadowBlur = 4;
-    ctx.beginPath();
-    ctx.moveTo(LEFT_PAD, y);
-    ctx.lineTo(LEFT_PAD + 6, y + 6);
-    ctx.lineTo(LEFT_PAD + 16, y - 6);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    fillWithHalo(ctx, b, LEFT_PAD + 26, y + 1, haloColor);
-    y += 36;
-  }
-
-  // NEW circular badge (sunburst) — placed mid-left
-  if (copy.new_badge && copy.new_badge.trim()) {
-    const cx = LEFT_PAD + 56;
-    const cy = CANVAS_SIZE * 0.66;
-    const r = 50;
-    // outer ring
-    ctx.fillStyle = "rgba(255,255,255,0.92)";
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#E5C97A";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    // sunburst
-    ctx.lineWidth = 1.5;
-    for (let i = 0; i < 16; i++) {
-      const a = (i / 16) * Math.PI * 2;
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(a) * (r + 4), cy + Math.sin(a) * (r + 4));
-      ctx.lineTo(cx + Math.cos(a) * (r + 12), cy + Math.sin(a) * (r + 12));
-      ctx.stroke();
-    }
-    // text
-    const parts = copy.new_badge.split(/[\s·]+/).filter(Boolean);
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "#1A1A1A";
-    if (parts.length >= 2 && /^[A-Za-z]+$/.test(parts[0])) {
-      ctx.font = `900 20px ${fontFamily}`;
-      ctx.fillText(parts[0].toUpperCase(), cx, cy - 10);
-      ctx.font = `600 13px ${fontFamily}`;
-      ctx.fillText(parts.slice(1).join(""), cx, cy + 12);
-    } else {
-      ctx.font = `700 15px ${fontFamily}`;
-      ctx.fillText(copy.new_badge.slice(0, 6), cx, cy);
-    }
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-  }
-
-  // Brand at bottom-left
-  if (copy.brand && copy.brand.trim()) {
-    ctx.fillStyle = textColor;
-    ctx.font = `800 18px ${fontFamily}`;
-    ctx.textBaseline = "alphabetic";
-    fillWithHalo(ctx, copy.brand, LEFT_PAD, CANVAS_SIZE - 32, haloColor);
-  }
-}
-
-/** Right-side wheat-spike pill badges, floating next to the product. */
-function drawSideBadge(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  cx: number,
-  cy: number,
-  fontFamily: string,
-) {
-  if (!text || !text.trim()) return;
-  ctx.font = `600 16px ${fontFamily}`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  const tw = ctx.measureText(text).width;
-  const padX = 12;
-  const w = tw + padX * 2;
-  const h = 32;
-  const r = h / 2;
-  // pill bg
-  ctx.fillStyle = "rgba(255,255,255,0.92)";
-  ctx.beginPath();
-  ctx.moveTo(cx - w / 2 + r, cy - h / 2);
-  ctx.arcTo(cx + w / 2, cy - h / 2, cx + w / 2, cy + h / 2, r);
-  ctx.arcTo(cx + w / 2, cy + h / 2, cx - w / 2, cy + h / 2, r);
-  ctx.arcTo(cx - w / 2, cy + h / 2, cx - w / 2, cy - h / 2, r);
-  ctx.arcTo(cx - w / 2, cy - h / 2, cx + w / 2, cy - h / 2, r);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = "#E5C97A";
-  ctx.lineWidth = 1.2;
-  ctx.stroke();
-  // wheat strokes
-  ctx.strokeStyle = "#C9A95C";
-  ctx.lineWidth = 1.2;
-  for (const dir of [-1, 1]) {
-    const baseX = cx + dir * (w / 2 + 4);
-    for (let i = 0; i < 3; i++) {
-      const yy = cy - 6 + i * 6;
-      ctx.beginPath();
-      ctx.moveTo(baseX, yy);
-      ctx.lineTo(baseX + dir * 8, yy - 2);
-      ctx.stroke();
-    }
-  }
-  ctx.fillStyle = "#1A1A1A";
-  ctx.fillText(text, cx, cy + 1);
+  return [text.slice(0, mid), text.slice(mid)];
 }
 
 async function waitForFonts(fontFamily: string): Promise<void> {
@@ -323,66 +98,341 @@ async function waitForFonts(fontFamily: string): Promise<void> {
   try {
     await Promise.race([
       Promise.all([
-        document.fonts.load(`900 44px ${primary}`),
-        document.fonts.load(`700 22px ${primary}`),
-        document.fonts.load(`500 18px ${primary}`),
+        document.fonts.load(`900 120px ${primary}`),
+        document.fonts.load(`700 24px ${primary}`),
       ]),
       new Promise((r) => setTimeout(r, 1500)),
     ]);
-    await Promise.race([
-      document.fonts.ready,
-      new Promise((r) => setTimeout(r, 500)),
-    ]);
-  } catch {
-    // Best-effort.
+    await Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 500))]);
+  } catch { /* best-effort */ }
+}
+
+function drawBullets(
+  ctx: CanvasRenderingContext2D,
+  bullets: string[],
+  fontFamily: string,
+  anchorX: number,
+  anchorY: number,
+  align: "left" | "right",
+) {
+  const fontSize = 22;
+  const pillH = 36;
+  const pillGap = 10;
+  const pillPadX = 12;
+  const ckW = 24;
+  ctx.font = `600 ${fontSize}px ${fontFamily}`;
+  ctx.textBaseline = "middle";
+
+  bullets.slice(0, 2).forEach((b, i) => {
+    const tw = ctx.measureText(b).width;
+    const pillW = Math.min(ckW + tw + pillPadX * 2, 260);
+    const px = align === "right" ? anchorX - pillW : anchorX;
+    const py = anchorY + i * (pillH + pillGap);
+    const cy = py + pillH / 2;
+
+    ctx.fillStyle = "rgba(0,0,0,0.50)";
+    ctx.beginPath();
+    const r = pillH / 2;
+    ctx.moveTo(px + r, py);
+    ctx.arcTo(px + pillW, py, px + pillW, py + pillH, r);
+    ctx.arcTo(px + pillW, py + pillH, px, py + pillH, r);
+    ctx.arcTo(px, py + pillH, px, py, r);
+    ctx.arcTo(px, py, px + pillW, py, r);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = "#FFFFFF";
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    const ckX = px + pillPadX;
+    ctx.beginPath();
+    ctx.moveTo(ckX, cy);
+    ctx.lineTo(ckX + 5, cy + 5);
+    ctx.lineTo(ckX + 14, cy - 5);
+    ctx.stroke();
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.textAlign = "left";
+    ctx.shadowColor = "rgba(0,0,0,0.3)";
+    ctx.shadowBlur = 2;
+    ctx.fillText(b, px + ckW + pillPadX, cy + 1);
+    ctx.shadowBlur = 0;
+  });
+}
+
+// ── Layout A: 大居中偏左 + 顶部强痛点 + 无底条 ──────────────────────────────
+function drawLayoutA(ctx: CanvasRenderingContext2D, img: HTMLImageElement, copy: CopyData, fontFamily: string) {
+  drawCover(ctx, img, 0, 0, S, S);
+
+  // top scrim
+  const grad = ctx.createLinearGradient(0, 0, 0, 280);
+  grad.addColorStop(0, "rgba(0,0,0,0.82)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, S, 280);
+
+  // main title — huge, top-left
+  const [l1, l2] = splitTitle(copy.main_title);
+  const tSize = l2 ? 90 : (copy.main_title.length <= 6 ? 120 : 100);
+  ctx.font = `900 ${tSize}px ${fontFamily}`;
+  ctx.textBaseline = "top";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#FFFFFF";
+  ctx.shadowColor = "rgba(0,0,0,0.7)";
+  ctx.shadowBlur = 12;
+  ctx.fillText(l1, PAD, 28);
+  if (l2) ctx.fillText(l2, PAD, 28 + tSize + 6);
+  ctx.shadowBlur = 0;
+
+  // sub_title bottom-right, no banner
+  if (copy.sub_title) {
+    const bottomGrad = ctx.createLinearGradient(0, S - 120, 0, S);
+    bottomGrad.addColorStop(0, "rgba(0,0,0,0)");
+    bottomGrad.addColorStop(1, "rgba(0,0,0,0.65)");
+    ctx.fillStyle = bottomGrad;
+    ctx.fillRect(0, S - 120, S, 120);
+
+    ctx.font = `700 24px ${fontFamily}`;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
+    ctx.fillStyle = "#FFFFFF";
+    ctx.shadowColor = "rgba(0,0,0,0.5)";
+    ctx.shadowBlur = 6;
+    ctx.fillText(copy.sub_title, S - PAD, S - 24);
+    ctx.shadowBlur = 0;
+  }
+
+  // brand top-right
+  if (copy.brand?.trim()) {
+    ctx.font = `500 16px ${fontFamily}`;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.fillText(copy.brand, S - PAD, 28);
   }
 }
 
-/**
- * Compose a 750×750 split-layout marketing image.
- * Returns a PNG dataURL.
- */
+// ── Layout B: 产品偏右 + 左侧痛点 ───────────────────────────────────────────
+function drawLayoutB(ctx: CanvasRenderingContext2D, img: HTMLImageElement, copy: CopyData, fontFamily: string) {
+  drawCover(ctx, img, 0, 0, S, S);
+
+  // left scrim
+  const grad = ctx.createLinearGradient(0, 0, S * 0.65, 0);
+  grad.addColorStop(0, "rgba(0,0,0,0.80)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, S, S);
+
+  // main title — left side, large
+  const [l1, l2] = splitTitle(copy.main_title);
+  const tSize = l2 ? 80 : (copy.main_title.length <= 6 ? 108 : 90);
+  ctx.font = `900 ${tSize}px ${fontFamily}`;
+  ctx.textBaseline = "top";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#FFFFFF";
+  ctx.shadowColor = "rgba(0,0,0,0.7)";
+  ctx.shadowBlur = 10;
+  ctx.fillText(l1, PAD, 60);
+  if (l2) ctx.fillText(l2, PAD, 60 + tSize + 6);
+  ctx.shadowBlur = 0;
+
+  // bullets — left side below title
+  const titleBottom = l2 ? 60 + tSize * 2 + 20 : 60 + tSize + 20;
+  drawBullets(ctx, copy.bullets, fontFamily, PAD, titleBottom + 20, "left");
+
+  // sub_title — bottom left
+  if (copy.sub_title) {
+    ctx.font = `600 22px ${fontFamily}`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "bottom";
+    ctx.fillStyle = "rgba(255,255,255,0.90)";
+    ctx.shadowColor = "rgba(0,0,0,0.5)";
+    ctx.shadowBlur = 4;
+    ctx.fillText(copy.sub_title, PAD, S - 28);
+    ctx.shadowBlur = 0;
+  }
+}
+
+// ── Layout C: 产品近景全出血 + 底部文字条 ───────────────────────────────────
+function drawLayoutC(ctx: CanvasRenderingContext2D, img: HTMLImageElement, copy: CopyData, fontFamily: string) {
+  drawCover(ctx, img, 0, 0, S, S);
+
+  // bottom gradient band
+  const bandH = 160;
+  const grad = ctx.createLinearGradient(0, S - bandH, 0, S);
+  grad.addColorStop(0, "rgba(0,0,0,0)");
+  grad.addColorStop(0.4, "rgba(0,0,0,0.72)");
+  grad.addColorStop(1, "rgba(0,0,0,0.88)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, S - bandH, S, bandH);
+
+  // main title — bottom left, large
+  const [l1, l2] = splitTitle(copy.main_title);
+  const tSize = l2 ? 72 : (copy.main_title.length <= 6 ? 96 : 80);
+  ctx.font = `900 ${tSize}px ${fontFamily}`;
+  ctx.textBaseline = "bottom";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#FFFFFF";
+  ctx.shadowColor = "rgba(0,0,0,0.6)";
+  ctx.shadowBlur = 8;
+  const titleY = l2 ? S - 28 - tSize - 6 : S - 28;
+  if (l2) {
+    ctx.fillText(l1, PAD, titleY);
+    ctx.fillText(l2, PAD, titleY + tSize + 6);
+  } else {
+    ctx.fillText(l1, PAD, titleY);
+  }
+  ctx.shadowBlur = 0;
+
+  // sub_title — bottom right
+  if (copy.sub_title) {
+    ctx.font = `500 20px ${fontFamily}`;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
+    ctx.fillStyle = "rgba(255,255,255,0.80)";
+    ctx.fillText(copy.sub_title, S - PAD, S - 28);
+  }
+
+  // brand top-left small
+  if (copy.brand?.trim()) {
+    const topGrad = ctx.createLinearGradient(0, 0, 0, 80);
+    topGrad.addColorStop(0, "rgba(0,0,0,0.55)");
+    topGrad.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = topGrad;
+    ctx.fillRect(0, 0, S, 80);
+    ctx.font = `500 16px ${fontFamily}`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.fillText(copy.brand, PAD, 20);
+  }
+}
+
+// ── Layout D: 产品居中大图 + 顶部人群定向 + 底条 ────────────────────────────
+function drawLayoutD(ctx: CanvasRenderingContext2D, img: HTMLImageElement, copy: CopyData, fontFamily: string) {
+  const BANNER_H = 72;
+  drawCover(ctx, img, 0, 0, S, S - BANNER_H);
+
+  // top scrim
+  const topGrad = ctx.createLinearGradient(0, 0, 0, 100);
+  topGrad.addColorStop(0, "rgba(0,0,0,0.60)");
+  topGrad.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = topGrad;
+  ctx.fillRect(0, 0, S, 100);
+
+  // brand / 人群定向 top-right
+  if (copy.brand?.trim()) {
+    ctx.font = `600 18px ${fontFamily}`;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.shadowColor = "rgba(0,0,0,0.4)";
+    ctx.shadowBlur = 4;
+    ctx.fillText(copy.brand, S - PAD, 22);
+    ctx.shadowBlur = 0;
+  }
+
+  // main title top-left
+  const [l1, l2] = splitTitle(copy.main_title);
+  const tSize = l2 ? 80 : (copy.main_title.length <= 6 ? 108 : 90);
+  ctx.font = `900 ${tSize}px ${fontFamily}`;
+  ctx.textBaseline = "top";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#FFFFFF";
+  ctx.shadowColor = "rgba(0,0,0,0.7)";
+  ctx.shadowBlur = 10;
+  ctx.fillText(l1, PAD, 22);
+  if (l2) ctx.fillText(l2, PAD, 22 + tSize + 6);
+  ctx.shadowBlur = 0;
+
+  // bullets right side, above banner
+  const bulletsBottom = S - BANNER_H - 20;
+  const bulletH = 36;
+  const bulletGap = 10;
+  const bulletsTop = bulletsBottom - (copy.bullets.slice(0, 2).length * (bulletH + bulletGap));
+  drawBullets(ctx, copy.bullets, fontFamily, S - 24, bulletsTop, "right");
+
+  // bottom banner
+  ctx.fillStyle = "#1C1C1E";
+  ctx.fillRect(0, S - BANNER_H, S, BANNER_H);
+
+  if (copy.sub_title) {
+    const stampText = copy.new_badge?.trim() || "";
+    ctx.font = `700 24px ${fontFamily}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillText(copy.sub_title, (S - (stampText ? 72 : 0)) / 2, S - BANNER_H / 2, S - PAD * 2 - (stampText ? 80 : 0));
+  }
+
+  // stamp badge
+  const stampText = copy.new_badge?.trim() || "";
+  if (stampText) {
+    const stampR = 32;
+    const stampX = S - 20 - stampR;
+    const stampY = S - BANNER_H / 2;
+    ctx.fillStyle = "#FFFFFF";
+    ctx.beginPath();
+    ctx.arc(stampX, stampY, stampR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#C9A95C";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.arc(stampX, stampY, stampR - 4, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#1A1A1A";
+    ctx.font = `700 12px ${fontFamily}`;
+    ctx.fillText(stampText.slice(0, 5), stampX, stampY);
+  }
+}
+
 export async function synthesizeTemplate1(
   baseImageUrl: string,
   copy: CopyData,
+  _productImageUrl?: string,
+  layoutVariant?: string,
 ): Promise<string> {
   const fontFamily = getFontFamily();
   await waitForFonts(fontFamily);
   const img = await loadImage(baseImageUrl);
 
   const canvas = document.createElement("canvas");
-  canvas.width = CANVAS_SIZE;
-  canvas.height = CANVAS_SIZE;
+  canvas.width = S;
+  canvas.height = S;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Could not get 2D canvas context");
 
-  // 1. Sample left-edge colors from the base image
-  const sampled = sampleLeftEdge(img);
+  const variant = layoutVariant ?? "A";
+  if (variant === "B") drawLayoutB(ctx, img, copy, fontFamily);
+  else if (variant === "C") drawLayoutC(ctx, img, copy, fontFamily);
+  else if (variant === "D") drawLayoutD(ctx, img, copy, fontFamily);
+  else drawLayoutA(ctx, img, copy, fontFamily);
 
-  // 2. Fill left 45% with a soft vertical gradient sampled from base
-  const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_SIZE);
-  grad.addColorStop(0, sampled.topRgb);
-  grad.addColorStop(1, sampled.bottomRgb);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, LEFT_W, CANVAS_SIZE);
+  // JPEG is ~5x smaller than PNG for photos — critical to avoid OOM in dev.
+  // Return an Object URL (backed by a Blob) instead of a base64 data URL so
+  // the string in React state is tiny (~60 chars) and the bitmap lives in the
+  // browser's Blob store, not the JS heap.
+  const result = await new Promise<string>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) { reject(new Error("canvas.toBlob returned null")); return; }
+        resolve(URL.createObjectURL(blob));
+      },
+      "image/jpeg",
+      0.85,
+    );
+  });
 
-  // 3. Draw base image fitted into right 55%, padded with sampled color
-  drawContain(ctx, img, RIGHT_X, 0, RIGHT_W, CANVAS_SIZE, sampled.rgb);
+  // Release canvas memory immediately — large canvases are not GC'd promptly.
+  canvas.width = 0;
+  canvas.height = 0;
+  // Release the decoded image bitmap held by the HTMLImageElement.
+  img.src = "";
 
-  // 4. Pick text + halo colors based on left-panel luminance
-  const textColor = sampled.isDark ? "#FFFFFF" : "#1A1A1A";
-  const haloColor = sampled.isDark
-    ? "rgba(0,0,0,0.45)"
-    : "rgba(255,255,255,0.55)";
-
-  // 5. Render left text panel
-  drawLeftPanel(ctx, copy, fontFamily, textColor, haloColor);
-
-  // 6. Render right-side badges floating next to the product
-  const sideBadges = (copy.side_badges ?? []).slice(0, 2);
-  const badgeX = CANVAS_SIZE - 80; // anchored to right margin
-  if (sideBadges[0]) drawSideBadge(ctx, sideBadges[0], badgeX, CANVAS_SIZE * 0.42, fontFamily);
-  if (sideBadges[1]) drawSideBadge(ctx, sideBadges[1], badgeX, CANVAS_SIZE * 0.56, fontFamily);
-
-  return canvas.toDataURL("image/png", 0.95);
+  return result;
 }

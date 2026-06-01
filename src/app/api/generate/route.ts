@@ -1,12 +1,15 @@
 export const runtime = "nodejs";
-export const maxDuration = 90;
+export const maxDuration = 120;
 
 const REPLICATE_CREATE_URL =
   "https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-max/predictions";
 
+const SHIYUN_IMAGE_URL = "https://shiyunapi.com/v1/images/edits";
+
 const TOTAL_BUDGET_MS = 75_000;
 const POLL_INTERVAL_MS = 2_000;
 const PER_FETCH_TIMEOUT_MS = 12_000;
+const SHIYUN_TIMEOUT_MS = 115_000; // gpt-image-2 edits can take 90-100s
 const CREATE_RETRIES = 2;
 const POLL_RETRIES = 1;
 
@@ -88,40 +91,111 @@ async function safeJson(res: Response, label: string): Promise<unknown | { __non
   }
 }
 
+// Placeholder images used in dev mode (one per scene slot, cycles if needed).
+const DEV_PLACEHOLDERS = [
+  "https://placehold.co/800x800/E8F4F8/2563EB?text=Scene+1+%28dev%29",
+  "https://placehold.co/800x800/F0FDF4/16A34A?text=Scene+2+%28dev%29",
+  "https://placehold.co/800x800/FFF7ED/EA580C?text=Scene+3+%28dev%29",
+  "https://placehold.co/800x800/FDF4FF/9333EA?text=Scene+4+%28dev%29",
+];
+
+let _devCounter = 0;
+
+type Brief = {
+  product_type?: string;
+  selling_points?: string[];
+  pain_points?: string[];
+  visual_style?: string;
+  main_title?: string;
+  subtitle?: string;
+};
+
+function buildMainImagePrompt(brief: Brief): string {
+  const type = brief.product_type ?? "护肤品";
+  const points = (brief.selling_points ?? []).slice(0, 3).map((p) =>
+    // trim to ≤6 chars so gpt-image-2 renders them reliably
+    p.replace(/[，,。.、\s]/g, "").slice(0, 8)
+  );
+  const mainTitle = (brief.main_title ?? "").slice(0, 10);
+  const subtitle = (brief.subtitle ?? "").slice(0, 14);
+
+  const titleLine = mainTitle || "核心功效";
+  const subtitleLine = subtitle || "";
+  const bulletsText = points.length > 0 ? points.join(" / ") : "高品质";
+
+  return (
+    `拼多多800x800商品主图，目标提升点击率和成交率。` +
+    `商品类型：${type}。` +
+    `商品主体：保持原图包装完全不变，放在画面右侧，占画面高度45%-50%，清晰完整。` +
+    `左侧大标题："${titleLine}"，粗体，颜色与背景高对比。` +
+    (subtitleLine ? `副标题："${subtitleLine}"，在大标题下方，字号略小。` : "") +
+    `左下三条卖点：✓${bulletsText.split(" / ").join(" ✓")}，字号适中。` +
+    `右上角"官方正品"圆章。` +
+    `底部横条文字："官方正品 · 品质保证 · 放心购买"。` +
+    `风格：粉白清爽电商风，信息密度高，不要大面积留白，不要高级杂志感。` +
+    `禁止：真人、人脸、虚构销量评价成分、原图没有的文字水印。`
+  );
+}
+
 export async function POST(req: Request): Promise<Response> {
   const t0 = Date.now();
   try {
-    const token = process.env.REPLICATE_API_TOKEN;
-    console.log("[generate] token present:", Boolean(token), "length:", token?.length ?? 0);
-    if (!token) return jsonError(500, "Server is missing REPLICATE_API_TOKEN");
+    // Dev mode: skip Replicate entirely, return a placeholder image.
+    if (process.env.LIGHTPIC_DEV_MODE === "1") {
+      const placeholder = DEV_PLACEHOLDERS[_devCounter % DEV_PLACEHOLDERS.length];
+      _devCounter++;
+      console.log("[generate] DEV MODE — returning placeholder:", placeholder);
+      await new Promise((r) => setTimeout(r, 800)); // simulate latency
+      return jsonResponse(200, { imageUrl: placeholder });
+    }
 
+    // ── Provider selection ──────────────────────────────────────────────────
+    const imageProvider = process.env.IMAGE_PROVIDER ?? "replicate";
+    const shiyunKey = process.env.SHIYUN_API_KEY;
+    const shiyunModel = process.env.SHIYUN_IMAGE_MODEL ?? "gpt-image-2";
+    const shiyunEndpoint = process.env.SHIYUN_BASE_URL
+      ? `${process.env.SHIYUN_BASE_URL.replace(/\/$/, "")}/v1/images/edits`
+      : SHIYUN_IMAGE_URL;
+
+    console.log("[generate] provider:", imageProvider, "| model:", shiyunModel, "| endpoint:", shiyunEndpoint);
+
+    // ── Parse request body (shared by both providers) ────────────────────────
     let body: unknown;
     try {
       body = await req.json();
     } catch (e) {
       return jsonError(400, "Invalid JSON body", { detail: String(e) });
     }
-    const { imageDataUrl, prompt: rawPrompt } = (body ?? {}) as {
+    const { imageDataUrl, prompt: rawPrompt, brief, nonce } = (body ?? {}) as {
       imageDataUrl?: unknown;
       prompt?: unknown;
+      brief?: Brief;
+      nonce?: unknown;
     };
+
+    const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    console.log("[generate] requestId:", requestId, "| nonce:", nonce ?? "(none)", "| startedAt:", new Date().toISOString());
 
     if (typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
       return jsonError(400, "Missing or invalid image");
     }
-    if (typeof rawPrompt !== "string" || !rawPrompt.trim()) {
-      return jsonError(400, "Missing prompt");
-    }
-    const prompt =
-      `${rawPrompt.trim()} Keep the product unchanged. ` +
-      `Critical: the output image must contain absolutely no text, no Chinese characters, no labels, no watermarks, no overlays, no captions, no logos other than what is already on the product itself. ` +
-      `The scene must be visually clean and minimalistic so that downstream Chinese marketing copy can be composited on top.`;
 
-    const replicateInput = {
-      input_image: imageDataUrl,
-      prompt,
-      output_format: "jpg",
-    };
+    // brief takes priority; rawPrompt is the fallback for direct callers
+    const basePrompt =
+      brief && typeof brief === "object"
+        ? buildMainImagePrompt(brief)
+        : typeof rawPrompt === "string" && rawPrompt.trim()
+          ? rawPrompt.trim()
+          : null;
+
+    if (!basePrompt) {
+      return jsonError(400, "Missing prompt or brief");
+    }
+
+    // Append nonce so repeated identical requests produce different outputs
+    // (avoids model/CDN caching the same result). Not rendered as image text.
+    const nonceStr = typeof nonce === "string" || typeof nonce === "number" ? String(nonce) : Date.now().toString();
+    const prompt = basePrompt + ` [variation:${nonceStr}]`;
 
     const imgMatch = imageDataUrl.match(/^data:(image\/[a-z+]+);base64,/);
     const approxBytes = Math.floor(((imageDataUrl.length - (imgMatch?.[0].length ?? 0)) * 3) / 4);
@@ -129,6 +203,105 @@ export async function POST(req: Request): Promise<Response> {
       input_image: `<${imgMatch?.[1] ?? "image"}, ~${(approxBytes / 1024).toFixed(0)}KB>`,
       prompt_chars: prompt.length,
     });
+
+    // ── Shiyun gpt-image-2 branch ────────────────────────────────────────────
+    if (imageProvider === "shiyun") {
+      if (!shiyunKey) {
+        return jsonError(500, "Server is missing SHIYUN_API_KEY");
+      }
+      console.log("[generate] using shiyun | finalProvider: shiyun | fallbackUsed: false");
+
+      // /v1/images/edits requires multipart/form-data, not JSON
+      const mimeMatch = imageDataUrl.match(/^data:(image\/[a-z+]+);base64,/);
+      const mime = mimeMatch?.[1] ?? "image/png";
+      const base64 = imageDataUrl.slice(mimeMatch?.[0].length ?? 0);
+      const buffer = Buffer.from(base64, "base64");
+      const blob = new Blob([buffer], { type: mime });
+
+      const form = new FormData();
+      form.append("image", blob, "product.png");
+      form.append("prompt", prompt);
+      form.append("model", shiyunModel);
+      form.append("n", "1");
+      form.append("size", "1024x1024");
+
+      console.log("[generate] shiyun image size:", buffer.length, "bytes | mime:", mime);
+      console.log("[generate] shiyun full prompt:\n", prompt);
+
+      let shiyunRes: Response;
+      try {
+        shiyunRes = await fetchWithRetry(
+          shiyunEndpoint,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${shiyunKey}` },
+            body: form,
+          },
+          SHIYUN_TIMEOUT_MS,
+          0,
+          "shiyun-create",
+        );
+      } catch (e) {
+        console.error("[generate] shiyun fetch failed:", String(e));
+        return jsonError(502, "Failed to reach Shiyun image API", { detail: String(e) });
+      }
+
+      const shiyunData = await safeJson(shiyunRes, "shiyun-create");
+      if (typeof shiyunData === "object" && shiyunData !== null && "__nonJson" in shiyunData) {
+        return jsonError(502, `Shiyun returned non-JSON (HTTP ${shiyunRes.status})`, {
+          snippet: (shiyunData as { __nonJson: string }).__nonJson,
+        });
+      }
+      if (!shiyunRes.ok) {
+        const errData = shiyunData as { error?: { message?: string }; message?: string };
+        const msg = errData?.error?.message ?? errData?.message ?? `Shiyun HTTP ${shiyunRes.status}`;
+        console.error("[generate] shiyun error:", msg);
+        return jsonError(502, msg, {
+          provider: "shiyun",
+          model: shiyunModel,
+          endpoint: shiyunEndpoint,
+          fallbackUsed: false,
+          finalProvider: "shiyun",
+        });
+      }
+
+      const imageList = (shiyunData as { data?: { url?: string; b64_json?: string }[] }).data;
+      const item = imageList?.[0];
+      const imageUrl = item?.url ?? (item?.b64_json ? `data:image/png;base64,${item.b64_json}` : undefined);
+      if (!imageUrl) {
+        return jsonError(502, "Shiyun returned no image URL", {
+          provider: "shiyun",
+          model: shiyunModel,
+          endpoint: shiyunEndpoint,
+          fallbackUsed: false,
+          finalProvider: "shiyun",
+        });
+      }
+
+      console.log("[generate] shiyun succeeded in", Date.now() - t0, "ms | requestId:", requestId, "| imageUrl length:", imageUrl.length, "| imageUrl prefix:", imageUrl.slice(0, 40));
+      return jsonResponse(200, {
+        imageUrl,
+        metadata: {
+          provider: "shiyun",
+          model: shiyunModel,
+          endpoint: shiyunEndpoint,
+          fallbackUsed: false,
+          finalProvider: "shiyun",
+        },
+      });
+    }
+
+    // ── Replicate branch (original logic, unchanged) ─────────────────────────
+    const token = process.env.REPLICATE_API_TOKEN;
+    console.log("[generate] using replicate | token present:", Boolean(token), "length:", token?.length ?? 0);
+    if (!token) return jsonError(500, "Server is missing REPLICATE_API_TOKEN");
+
+    const replicateInput = {
+      input_image: imageDataUrl,
+      prompt,
+      output_format: "jpg",
+      seed: Math.floor(Math.random() * 2_147_483_647),
+    };
 
     let createRes: Response;
     try {
@@ -220,7 +393,16 @@ export async function POST(req: Request): Promise<Response> {
           return jsonError(502, "Generation succeeded but no output URL");
         }
         console.log("[generate] succeeded in", Date.now() - t0, "ms");
-        return jsonResponse(200, { imageUrl: output });
+        return jsonResponse(200, {
+          imageUrl: output,
+          metadata: {
+            provider: "replicate",
+            model: "flux-kontext-max",
+            endpoint: REPLICATE_CREATE_URL,
+            fallbackUsed: false,
+            finalProvider: "replicate",
+          },
+        });
       }
       if (data.status === "failed" || data.status === "canceled") {
         return jsonError(502, data.error || `Generation ${data.status}`);

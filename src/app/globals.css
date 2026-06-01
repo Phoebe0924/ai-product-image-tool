@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #F5F5F7;
-  --foreground: #1A1A1A;
+  --background: #F6F3EA;
+  --foreground: #111111;
 }
 
 @theme inline {
@@ -22,8 +22,8 @@ body {
 /* Suppress dark mode — tool is light-only */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #F5F5F7;
-    --foreground: #1A1A1A;
+    --background: #F6F3EA;
+    --foreground: #111111;
   }
 }
 
@@ -33,7 +33,7 @@ body {
 }
 
 .skeleton {
-  background: linear-gradient(90deg, #EBEBED 25%, #F5F5F7 50%, #EBEBED 75%);
+  background: linear-gradient(90deg, #E8E2D6 25%, #F0EBE0 50%, #E8E2D6 75%);
   background-size: 800px 100%;
   animation: shimmer 1.4s ease-in-out infinite;
 }

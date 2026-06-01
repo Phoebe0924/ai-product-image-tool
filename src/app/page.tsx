@@ -1,17 +1,48 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
-import { synthesizeTemplate1, type CopyData } from "@/lib/canvas/template1";
 
 type StepId = "input" | "analyzing" | "plan" | "generating" | "complete";
 
 const STEPS: { id: StepId; label: string }[] = [
-  { id: "input", label: "输入" },
-  { id: "analyzing", label: "分析中" },
+  { id: "input", label: "上传商品图" },
+  { id: "analyzing", label: "AI 分析卖点" },
   { id: "plan", label: "确认方案" },
-  { id: "generating", label: "生成中" },
-  { id: "complete", label: "完成" },
+  { id: "generating", label: "生成图片" },
+  { id: "complete", label: "下载使用" },
 ];
+
+const CATEGORIES = [
+  { id: "beauty", label: "美妆护肤" },
+  { id: "food", label: "食品饮品" },
+  { id: "home", label: "家居日用" },
+  { id: "fashion", label: "服饰配件" },
+  { id: "appliance", label: "小家电" },
+] as const;
+type CategoryId = typeof CATEGORIES[number]["id"];
+
+const PLATFORMS = [
+  { id: "pdd", label: "拼多多" },
+  { id: "taobao", label: "淘宝" },
+  { id: "douyin", label: "抖音" },
+  { id: "xiaohongshu", label: "小红书" },
+] as const;
+type PlatformId = typeof PLATFORMS[number]["id"];
+
+const OUTPUT_MODES = [
+  { id: "visual", label: "纯视觉图" },
+  { id: "copy", label: "带文案商品图" },
+] as const;
+type OutputModeId = typeof OUTPUT_MODES[number]["id"];
+
+const OUTPUT_LANGUAGES = [
+  { id: "zh", label: "中文" },
+  { id: "en", label: "English" },
+  { id: "ja", label: "日本語" },
+  { id: "ko", label: "한국어" },
+  { id: "th", label: "Thai" },
+] as const;
+type OutputLanguageId = typeof OUTPUT_LANGUAGES[number]["id"];
 
 const PLATFORM_SPEC = {
   name: "拼多多",
@@ -22,38 +53,18 @@ const PLATFORM_SPEC = {
   ],
 };
 
-type ImagePlanItem = {
-  id: "scene-1" | "scene-2" | "scene-3" | "scene-4";
-  layout_variant?: "A" | "B" | "C" | "D";
-  title: string;
-  purpose: string;
-  prompt: string;
-  copy: CopyData;
-};
-
-type AnalyzedPlan = {
+type Brief = {
   product_type: string;
-  visual_features: string;
   selling_points: string[];
+  pain_points: string[];
   visual_style: string;
-  color_system: string;
-  image_plan: ImagePlanItem[];
-  copy?: CopyData;
-};
-
-type ScoreData = {
-  ctrPotential: number;
-  subjectClarity: number;
-  pddMatch: number;
-  aiTemplateFeeling: number;
-  scoreSource: string;
+  main_title: string;
+  subtitle: string;
 };
 
 type GeneratedItem = {
-  planItem: ImagePlanItem;
-  status: "pending" | "loading" | "done" | "composing" | "error";
-  imageUrl?: string;       // raw base from Replicate
-  composedUrl?: string;    // final canvas-synthesized image
+  status: "pending" | "loading" | "done" | "error";
+  imageUrl?: string;
   error?: string;
 };
 
@@ -118,44 +129,40 @@ function CheckIcon() {
 function StepIndicator({ current }: { current: StepId }) {
   const currentIdx = STEPS.findIndex((s) => s.id === current);
   return (
-    <ol className="flex w-full items-center">
+    <ol className="flex items-center gap-0">
       {STEPS.map((step, idx) => {
         const isDone = idx < currentIdx;
         const isCurrent = idx === currentIdx;
         return (
-          <li key={step.id} className="flex flex-1 items-center">
-            <div className="flex flex-1 flex-col items-center gap-1.5">
+          <li key={step.id} className="flex items-center">
+            <div className="flex items-center gap-1.5">
               <div
                 className={
-                  "flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-medium transition-colors " +
+                  "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-medium transition-colors " +
                   (isDone
-                    ? "bg-[#1A1A1A] text-white"
+                    ? "bg-[#111111] text-white"
                     : isCurrent
-                      ? "bg-[#1A1A1A] text-white ring-4 ring-[#1A1A1A]/10"
-                      : "bg-[#E8E8EA] text-[#AEAEB2]")
+                      ? "bg-[#111111] text-white ring-3 ring-[#111111]/10"
+                      : "bg-[#E5DED2] text-[#A09890]")
                 }
               >
                 {isDone ? <CheckIcon /> : idx + 1}
               </div>
               <span
                 className={
-                  "text-[10px] tracking-wide " +
+                  "hidden text-[10px] sm:inline " +
                   (isCurrent
-                    ? "font-semibold text-[#1A1A1A]"
+                    ? "font-semibold text-[#111111]"
                     : isDone
-                      ? "font-medium text-[#1A1A1A]"
-                      : "text-[#AEAEB2]")
+                      ? "font-medium text-[#7A756B]"
+                      : "text-[#A09890]")
                 }
               >
                 {step.label}
               </span>
             </div>
             {idx < STEPS.length - 1 && (
-              <div
-                className={
-                  "mb-4 h-px flex-1 transition-colors " + (isDone ? "bg-[#1A1A1A]" : "bg-[#E8E8EA]")
-                }
-              />
+              <div className={"mx-2 h-px w-6 transition-colors " + (isDone ? "bg-[#111111]" : "bg-[#DED6C9]")} />
             )}
           </li>
         );
@@ -174,7 +181,7 @@ function Card({
   return (
     <div
       className={
-        "rounded-xl border border-[#E8E8EA] bg-white p-5 " +
+        "rounded-xl border border-[#E5DED2] bg-[#FFFCF6] p-4 shadow-sm " +
         className
       }
     >
@@ -192,10 +199,10 @@ function CardSection({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="text-[11px] font-semibold uppercase tracking-widest text-[#AEAEB2]">
+      <h3 className="text-[10px] font-semibold uppercase tracking-widest text-[#A09890]">
         {title}
       </h3>
-      <div className="text-sm text-[#1A1A1A]">{children}</div>
+      <div className="text-sm text-[#111111]">{children}</div>
     </div>
   );
 }
@@ -209,7 +216,7 @@ function PrimaryButton({
       type="button"
       {...rest}
       className={
-        "w-full rounded-lg bg-[#1A1A1A] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#333] disabled:cursor-not-allowed disabled:bg-[#AEAEB2] " +
+        "w-full rounded-lg bg-[#111111] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#2B2925] disabled:cursor-not-allowed disabled:bg-[#C8C0B4] " +
         (rest.className ?? "")
       }
     >
@@ -227,7 +234,7 @@ function SecondaryButton({
       type="button"
       {...rest}
       className={
-        "w-full rounded-lg border border-[#E8E8EA] bg-white px-5 py-2.5 text-sm font-medium text-[#1A1A1A] transition hover:bg-[#F5F5F7] disabled:opacity-50 " +
+        "w-full rounded-lg border border-[#DED6C9] bg-[#F1EDE5] px-5 py-2.5 text-sm font-medium text-[#2B2925] transition hover:bg-[#EAE4DA] disabled:opacity-50 " +
         (rest.className ?? "")
       }
     >
@@ -245,7 +252,7 @@ function GreenButton({
       type="button"
       {...rest}
       className={
-        "w-full rounded-lg bg-[#1A1A1A] px-5 py-2.5 text-sm font-medium text-white transition hover:bg-[#333] disabled:cursor-not-allowed disabled:opacity-50 " +
+        "w-full rounded-lg bg-[#111111] px-5 py-2.5 text-sm font-medium text-white transition hover:bg-[#2B2925] disabled:cursor-not-allowed disabled:opacity-50 " +
         (rest.className ?? "")
       }
     >
@@ -260,42 +267,49 @@ export default function Home() {
   const [originalFile, setOriginalFile] = useState<File | null>(null);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [productDescription, setProductDescription] = useState<string>("");
-  const [plan, setPlan] = useState<AnalyzedPlan | null>(null);
-  const [score, setScore] = useState<ScoreData | null>(null);
-  const [editedCopies, setEditedCopies] = useState<Record<string, CopyData>>({});
+  const [category, setCategory] = useState<CategoryId>("beauty");
+  const [platform, setPlatform] = useState<PlatformId>("pdd");
+  const [outputMode, setOutputMode] = useState<OutputModeId>("copy");
+  const [outputLanguage, setOutputLanguage] = useState<OutputLanguageId>("zh");
+  const [brief, setBrief] = useState<Brief | null>(null);
   const [results, setResults] = useState<GeneratedItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const workbenchRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (lightboxIdx === null) return;
+      if (e.key === "Escape") setLightboxIdx(null);
+      if (e.key === "ArrowRight") setLightboxIdx((i) => i !== null ? Math.min(i + 1, results.length - 1) : null);
+      if (e.key === "ArrowLeft") setLightboxIdx((i) => i !== null ? Math.max(i - 1, 0) : null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxIdx, results.length]);
 
   function reset() {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setResults([]);
     setStep("input");
     setPreviewUrl(null);
     setOriginalFile(null);
     setImageDataUrl(null);
     setProductDescription("");
-    setPlan(null);
-    setScore(null);
-    setEditedCopies({});
-    setResults([]);
+    setCategory("beauty");
+    setPlatform("pdd");
+    setOutputMode("copy");
+    setOutputLanguage("zh");
+    setBrief(null);
     setError(null);
     setNotice(null);
     if (inputRef.current) inputRef.current.value = "";
   }
-
-  // Sync editedCopies whenever a new plan arrives
-  useEffect(() => {
-    if (plan?.image_plan) {
-      const copies: Record<string, CopyData> = {};
-      for (const item of plan.image_plan) {
-        copies[item.id] = { ...item.copy, bullets: [...item.copy.bullets], side_badges: [...item.copy.side_badges] };
-      }
-      setEditedCopies(copies);
-    } else {
-      setEditedCopies({});
-    }
-  }, [plan]);
 
   function handleFile(file: File) {
     if (isHeic(file)) {
@@ -337,15 +351,13 @@ export default function Home() {
           body: JSON.stringify({ imageDataUrl: dataUrl, productDescription: productDescription.trim() || undefined }),
           signal: controller.signal,
         });
-        let data: { plan?: AnalyzedPlan; score?: ScoreData; unsupported?: boolean; reason?: string; error?: string } = {};
+        let data: { brief?: Brief; unsupported?: boolean; reason?: string; error?: string } = {};
         try {
           data = await res.json();
         } catch {
           throw new Error(`分析服务返回异常 (HTTP ${res.status})`);
         }
         if (!res.ok) throw new Error(data.error || `分析失败 (HTTP ${res.status})`);
-        // Non-skincare branch: server returned 200 with {unsupported: true, reason}.
-        // Surface as a friendly notice on the input step, not an error.
         if (data.unsupported) {
           setNotice(
             data.reason ||
@@ -354,9 +366,8 @@ export default function Home() {
           setStep("input");
           return;
         }
-        if (!data.plan) throw new Error("分析失败:未返回方案");
-        setPlan(data.plan);
-        if (data.score) setScore(data.score as ScoreData);
+        if (!data.brief) throw new Error("分析失败:未返回方案");
+        setBrief(data.brief);
         setStep("plan");
       } finally {
         clearTimeout(timer);
@@ -371,21 +382,73 @@ export default function Home() {
     }
   }
 
-  async function generateOne(item: ImagePlanItem, idx: number, dataUrl: string) {
-    setResults((prev) => {
-      const next = [...prev];
-      next[idx] = { ...next[idx], status: "loading" };
-      return next;
-    });
+  // Returns a single GeneratedItem without touching React state.
+  async function generateSingle(currentBrief: Brief, dataUrl: string): Promise<GeneratedItem> {
     const MAX_ATTEMPTS = 3;
+    let lastErr = "生成失败";
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 95_000);
+      const timer = setTimeout(() => controller.abort(), 125_000);
       try {
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageDataUrl: dataUrl, prompt: item.prompt }),
+          body: JSON.stringify({ imageDataUrl: dataUrl, brief: currentBrief, nonce: Date.now() }),
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        let data: { imageUrl?: string; error?: string } = {};
+        try { data = await res.json(); } catch { /* ignore */ }
+        if (res.status === 429 && attempt < MAX_ATTEMPTS - 1) {
+          await new Promise((r) => setTimeout(r, 6_000 * (attempt + 1)));
+          continue;
+        }
+        if (!res.ok) { lastErr = data.error || `生成失败 (HTTP ${res.status})`; continue; }
+        if (!data.imageUrl) { lastErr = "生成失败:未返回图片地址"; continue; }
+        return { status: "done", imageUrl: data.imageUrl };
+      } catch (e) {
+        clearTimeout(timer);
+        lastErr = e instanceof DOMException && e.name === "AbortError"
+          ? "生成超时,请重试"
+          : e instanceof Error ? e.message : "生成失败";
+        if (attempt < MAX_ATTEMPTS - 1) {
+          await new Promise((r) => setTimeout(r, 6_000 * (attempt + 1)));
+        }
+      }
+    }
+    return { status: "error", error: lastErr };
+  }
+
+  async function runBatchTest(currentBrief: Brief, dataUrl: string, count = 5) {
+    // Initialise all slots as loading
+    setResults(Array.from({ length: count }, () => ({ status: "loading" as const })));
+    setStep("generating");
+    for (let i = 0; i < count; i++) {
+      const item = await generateSingle(currentBrief, dataUrl);
+      setResults((prev) => {
+        const next = [...prev];
+        next[i] = item;
+        return next;
+      });
+      if (i < count - 1) await new Promise((r) => setTimeout(r, 2_000));
+    }
+    setStep("complete");
+  }
+
+  async function generateOne(currentBrief: Brief, dataUrl: string) {
+    setResults([{ status: "loading" }]);
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const requestId = `fe-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const nonce = Date.now();
+      console.log("[generateOne] requestId:", requestId, "| nonce:", nonce, "| attempt:", attempt, "| startedAt:", new Date().toISOString());
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 125_000);
+      try {
+        const res = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageDataUrl: dataUrl, brief: currentBrief, nonce }),
           signal: controller.signal,
         });
         let data: { imageUrl?: string; error?: string } = {};
@@ -394,7 +457,7 @@ export default function Home() {
         } catch {
           throw new Error(`服务器返回异常 (HTTP ${res.status})`);
         }
-        // 429: back off and retry
+        console.log("[generateOne] requestId:", requestId, "| status:", res.status, "| imageUrl length:", data.imageUrl?.length ?? 0, "| imageUrl prefix:", data.imageUrl?.slice(0, 40) ?? "(none)");
         if (res.status === 429 && attempt < MAX_ATTEMPTS - 1) {
           clearTimeout(timer);
           await new Promise((r) => setTimeout(r, 6_000 * (attempt + 1)));
@@ -402,39 +465,9 @@ export default function Home() {
         }
         if (!res.ok) throw new Error(data.error || `生成失败 (HTTP ${res.status})`);
         if (!data.imageUrl) throw new Error("生成失败:未返回图片地址");
-        const baseUrl = data.imageUrl;
-        setResults((prev) => {
-          const next = [...prev];
-          next[idx] = { ...next[idx], status: "done", imageUrl: baseUrl };
-          return next;
-        });
-
-        // All 4 slots are scene images — all go through Canvas composition.
-        const copy = editedCopies[item.id];
-        if (copy) {
-          setResults((prev) => {
-            const next = [...prev];
-            next[idx] = { ...next[idx], status: "composing" };
-            return next;
-          });
-          try {
-            const composedUrl = await synthesizeTemplate1(baseUrl, copy, dataUrl, item.layout_variant);
-            setResults((prev) => {
-              const next = [...prev];
-              next[idx] = { ...next[idx], status: "done", composedUrl };
-              return next;
-            });
-          } catch (composeErr) {
-            console.warn("Canvas composition failed:", composeErr);
-            setResults((prev) => {
-              const next = [...prev];
-              next[idx] = { ...next[idx], status: "done" };
-              return next;
-            });
-          }
-        }
+        setResults([{ status: "done", imageUrl: data.imageUrl }]);
         clearTimeout(timer);
-        return; // success
+        return;
       } catch (e) {
         clearTimeout(timer);
         const is429 = e instanceof Error && e.message.includes("429");
@@ -448,45 +481,30 @@ export default function Home() {
             : e instanceof Error
               ? e.message
               : "生成失败";
-        setResults((prev) => {
-          const next = [...prev];
-          next[idx] = { ...next[idx], status: "error", error: msg };
-          return next;
-        });
+        setResults([{ status: "error", error: msg }]);
         return;
       }
     }
   }
 
   async function startGenerate() {
-    if (!plan || !imageDataUrl) return;
+    if (!brief || !imageDataUrl) return;
     setError(null);
     setStep("generating");
-    setResults(
-      plan.image_plan.map((p) => ({ planItem: p, status: "pending" })),
-    );
-    for (let i = 0; i < plan.image_plan.length; i++) {
-      if (i > 0) await new Promise((r) => setTimeout(r, 3_000));
-      await generateOne(plan.image_plan[i], i, imageDataUrl);
-    }
+    await generateOne(brief, imageDataUrl);
     setStep("complete");
   }
 
   async function regenerateAll() {
-    if (!plan || !imageDataUrl) return;
+    if (!brief || !imageDataUrl) return;
     setStep("generating");
-    setResults(plan.image_plan.map((p) => ({ planItem: p, status: "pending" })));
-    for (let i = 0; i < plan.image_plan.length; i++) {
-      if (i > 0) await new Promise((r) => setTimeout(r, 3_000));
-      await generateOne(plan.image_plan[i], i, imageDataUrl);
-    }
+    await generateOne(brief, imageDataUrl);
     setStep("complete");
   }
 
   async function downloadOne(idx: number) {
     const item = results[idx];
-    // Prefer the Canvas-composed image if available; fall back to raw Replicate output.
-    const url = item?.composedUrl || item?.imageUrl;
+    const url = item?.imageUrl;
     if (!url) return;
     try {
       const res = await fetch(url);
@@ -496,7 +514,7 @@ export default function Home() {
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = blobUrl;
-      a.download = `lightpic-${item.planItem.id}.${ext}`;
+      a.download = `lightpic-main.${ext}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -520,92 +538,162 @@ export default function Home() {
   function renderLeftPane() {
     if (step === "input") {
       return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
+          {/* Upload */}
           <Card>
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3">
               <div>
-                <h2 className="text-sm font-semibold text-[#1A1A1A]">上传商品图</h2>
-                <p className="mt-0.5 text-xs text-[#AEAEB2]">支持 JPG · PNG · WEBP，建议白底或简单背景</p>
+                <h2 className="text-sm font-semibold text-[#111111]">上传商品图</h2>
+                <p className="mt-0.5 text-xs text-[#A09890]">支持 JPG · PNG · WEBP，建议白底或简单背景</p>
               </div>
-
-              <div
-                onDrop={onDrop}
-                onDragOver={(e) => e.preventDefault()}
-              >
+              <div onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
                 <button
                   type="button"
                   onClick={() => inputRef.current?.click()}
-                  className="flex w-full flex-col items-center gap-3 rounded-lg border border-dashed border-[#D1D1D6] bg-[#F5F5F7] px-6 py-8 text-[#1A1A1A] transition hover:border-[#1A1A1A] hover:bg-[#F0F0F2]"
+                  className="flex w-full flex-col items-center gap-3 rounded-lg border border-dashed border-[#D8D0C3] bg-[#F6F2E8] px-6 py-7 text-[#111111] transition hover:border-[#111111] hover:bg-[#EFE9DC]"
                 >
                   {previewUrl ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      src={previewUrl}
-                      alt="已上传商品"
-                      className="max-h-52 w-auto rounded-lg bg-white object-contain"
-                    />
+                    <img src={previewUrl} alt="已上传商品" className="max-h-44 w-auto rounded-lg bg-white object-contain shadow-sm" />
                   ) : (
                     <>
-                      <span className="text-[#AEAEB2]">
-                        <UploadIcon />
-                      </span>
-                      <span className="text-sm font-medium text-[#6B6B6E]">点击或拖拽上传</span>
+                      <span className="text-[#C8C0B4]"><UploadIcon /></span>
+                      <span className="text-sm font-medium text-[#7A756B]">点击或拖拽上传</span>
                     </>
                   )}
                 </button>
               </div>
-
-              <input
-                ref={inputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                className="sr-only"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleFile(f);
-                }}
-              />
-
+              <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
               {previewUrl && (
                 <div className="flex w-full gap-2">
-                  <SecondaryButton onClick={() => inputRef.current?.click()}>
-                    重新上传
-                  </SecondaryButton>
+                  <SecondaryButton onClick={() => inputRef.current?.click()}>重新上传</SecondaryButton>
                   <SecondaryButton onClick={reset}>移除</SecondaryButton>
                 </div>
               )}
-
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-[#6B6B6E]">
-                  产品描述 <span className="font-normal text-[#AEAEB2]">（可选）</span>
-                </label>
-                <input
-                  type="text"
-                  value={productDescription}
-                  onChange={(e) => setProductDescription(e.target.value)}
-                  placeholder="如：护发素、洗发水、身体乳……"
-                  className="rounded-lg border border-[#E8E8EA] bg-[#F5F5F7] px-3 py-2 text-sm outline-none focus:border-[#1A1A1A] focus:bg-white"
-                />
-              </div>
-
-              {error && (
-                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                  {error}
-                </p>
-              )}
-
-              {notice && (
-                <div className="flex gap-2 rounded-lg border border-[#E8E8EA] bg-[#F5F5F7] px-3 py-2.5 text-xs text-[#6B6B6E]">
-                  <span aria-hidden="true">ℹ</span>
-                  <span>{notice}</span>
-                </div>
-              )}
-
-              <PrimaryButton onClick={startAnalyze} disabled={!originalFile}>
-                开始分析
-              </PrimaryButton>
             </div>
           </Card>
+
+          {/* Category */}
+          <Card>
+            <div className="flex flex-col gap-2.5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold text-[#2B2925]">商品品类</h3>
+                <span className="rounded bg-[#EDE7DC] px-1.5 py-0.5 text-[10px] text-[#7A756B]">重点测试品类</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {CATEGORIES.map((c) => (
+                  <button key={c.id} type="button" onClick={() => setCategory(c.id)}
+                    className={"rounded-full border px-3 py-1 text-xs font-medium transition " +
+                      (category === c.id
+                        ? "border-[#111111] bg-[#111111] text-white"
+                        : "border-[#DED6C9] bg-[#F1EDE5] text-[#6F6A60] hover:border-[#2B2925] hover:text-[#2B2925]")}>
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </Card>
+
+          {/* Platform */}
+          <Card>
+            <div className="flex flex-col gap-2.5">
+              <h3 className="text-xs font-semibold text-[#2B2925]">目标平台</h3>
+              <div className="grid grid-cols-2 gap-1.5">
+                {PLATFORMS.map((p) => (
+                  <button key={p.id} type="button" onClick={() => setPlatform(p.id)}
+                    className={"rounded-lg border px-3 py-1.5 text-xs font-medium transition " +
+                      (platform === p.id
+                        ? "border-[#111111] bg-[#111111] text-white"
+                        : "border-[#DED6C9] bg-[#F1EDE5] text-[#6F6A60] hover:border-[#2B2925] hover:text-[#2B2925]")}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              {platform !== "pdd" && (
+                <p className="text-[10px] text-[#A09890]">当前版本以拼多多规格生成，其他平台适配即将上线</p>
+              )}
+            </div>
+          </Card>
+
+          {/* Output mode */}
+          <Card>
+            <div className="flex flex-col gap-2.5">
+              <h3 className="text-xs font-semibold text-[#2B2925]">输出模式</h3>
+              <div className="flex rounded-lg border border-[#DED6C9] bg-[#EDE7DC] p-0.5">
+                {OUTPUT_MODES.map((m) => (
+                  <button key={m.id} type="button" onClick={() => setOutputMode(m.id)}
+                    className={"flex-1 rounded-md py-1.5 text-xs font-medium transition " +
+                      (outputMode === m.id
+                        ? "bg-[#FFFCF6] text-[#111111] shadow-sm"
+                        : "text-[#7A756B] hover:text-[#2B2925]")}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </Card>
+
+          {/* Output language */}
+          <Card>
+            <div className="flex flex-col gap-2.5">
+              <h3 className="text-xs font-semibold text-[#2B2925]">输出语言</h3>
+              <div className="flex flex-wrap gap-1.5">
+                {OUTPUT_LANGUAGES.map((l) => (
+                  <button key={l.id} type="button" onClick={() => setOutputLanguage(l.id)}
+                    className={"rounded-full border px-3 py-1 text-xs font-medium transition " +
+                      (outputLanguage === l.id
+                        ? "border-[#111111] bg-[#111111] text-white"
+                        : "border-[#DED6C9] bg-[#F1EDE5] text-[#6F6A60] hover:border-[#2B2925] hover:text-[#2B2925]")}>
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+              {outputLanguage !== "zh" && (
+                <p className="text-[10px] text-[#A09890]">多语言文案即将上线，当前以中文生成</p>
+              )}
+            </div>
+          </Card>
+
+          {/* Brief — empty state before upload; AI draft appears after analyze */}
+          <Card>
+            <div className="flex flex-col gap-2.5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold text-[#2B2925]">商品 Brief</h3>
+                <span className="rounded bg-[#EDE7DC] px-1.5 py-0.5 text-[10px] text-[#7A756B]">AI 自动生成</span>
+              </div>
+              {previewUrl ? (
+                <div className="flex flex-col gap-1.5 rounded-lg border border-dashed border-[#D8D0C3] bg-[#F6F2E8] px-3 py-3">
+                  <p className="text-xs text-[#7A756B]">点击「开始分析」后，AI 将自动生成商品 brief 草稿，你可以在确认方案时修改。</p>
+                  <textarea
+                    value={productDescription}
+                    onChange={(e) => setProductDescription(e.target.value)}
+                    placeholder="可选：补充特殊要求，如「主打保湿补水，适合干皮，无香精无酒精」"
+                    rows={2}
+                    className="w-full resize-none rounded-lg border border-[#DED6C9] bg-[#FFFCF6] px-3 py-2 text-xs text-[#111111] placeholder-[#C8C0B4] outline-none focus:border-[#111111]"
+                  />
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-[#D8D0C3] bg-[#F6F2E8] px-3 py-4 text-center">
+                  <p className="text-xs text-[#A09890]">上传商品图后，AI 将自动生成商品 brief 草稿。</p>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {error && (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>
+          )}
+          {notice && (
+            <div className="flex gap-2 rounded-lg border border-[#DED6C9] bg-[#F1EDE5] px-3 py-2.5 text-xs text-[#7A756B]">
+              <span aria-hidden="true">ℹ</span>
+              <span>{notice}</span>
+            </div>
+          )}
+
+          <PrimaryButton onClick={startAnalyze} disabled={mounted && !originalFile}>
+            开始分析
+          </PrimaryButton>
         </div>
       );
     }
@@ -616,18 +704,14 @@ export default function Home() {
           <div className="flex flex-col items-center gap-4 py-6">
             {previewUrl && (
               /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={previewUrl}
-                alt="已上传商品"
-                className="max-h-36 w-auto rounded-lg border border-[#E8E8EA] bg-white object-contain"
-              />
+              <img src={previewUrl} alt="已上传商品" className="max-h-36 w-auto rounded-lg border border-[#E5DED2] bg-white object-contain shadow-sm" />
             )}
             <div className="flex flex-col items-center gap-2">
-              <svg className="spin-slow text-[#1A1A1A]" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <svg className="spin-slow text-[#111111]" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                 <path d="M21 12a9 9 0 1 1-6.219-8.56" />
               </svg>
-              <p className="text-sm font-medium text-[#1A1A1A]">AI 分析中</p>
-              <p className="text-xs text-[#AEAEB2]">通常 10–20 秒</p>
+              <p className="text-sm font-medium text-[#111111]">AI 分析中</p>
+              <p className="text-xs text-[#A09890]">通常 10–20 秒</p>
             </div>
           </div>
         </Card>
@@ -636,20 +720,57 @@ export default function Home() {
 
     if (step === "plan") {
       return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
           <Card>
             {previewUrl && (
               /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={previewUrl}
-                alt="原图"
-                className="mb-3 max-h-48 w-full rounded-xl border border-[#E5E5E7] bg-white object-contain"
-              />
+              <img src={previewUrl} alt="原图" className="mb-3 max-h-48 w-full rounded-xl border border-[#E5DED2] bg-white object-contain shadow-sm" />
             )}
-            <p className="text-xs text-[#6B6B6E]">原图预览</p>
+            <p className="text-xs text-[#7A756B]">原图预览</p>
           </Card>
-          <PrimaryButton onClick={startGenerate}>确认,开始生成</PrimaryButton>
+
+          {/* Brief summary */}
+          {brief && (
+            <Card>
+              <div className="flex flex-col gap-2">
+                <h3 className="text-xs font-semibold text-[#111111]">AI 分析结果</h3>
+                <div className="flex flex-col gap-1.5 rounded-lg bg-[#F6F2E8] px-3 py-2.5 text-xs">
+                  <div className="flex gap-2">
+                    <span className="shrink-0 text-[#A09890]">产品类型</span>
+                    <span className="text-[#2B2925]">{brief.product_type}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="shrink-0 text-[#A09890]">主标题</span>
+                    <span className="font-medium text-[#111111]">{brief.main_title}</span>
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[#A09890]">核心卖点</span>
+                    <ul className="flex flex-col gap-0.5 pl-1">
+                      {brief.selling_points.map((sp, i) => (
+                        <li key={i} className="flex gap-1.5 text-[#2B2925]">
+                          <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#111111]" />
+                          {sp}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          <PrimaryButton onClick={startGenerate}>确认 Brief，开始生成</PrimaryButton>
+          <SecondaryButton
+            onClick={() => { if (brief && imageDataUrl) runBatchTest(brief, imageDataUrl); }}
+            disabled={!brief || !imageDataUrl}
+          >
+            稳定性测试 ×5（串行生成）
+          </SecondaryButton>
           <SecondaryButton onClick={reset}>重新上传</SecondaryButton>
+          <button type="button" onClick={startAnalyze}
+            className="w-full rounded-lg border border-[#DED6C9] bg-transparent px-5 py-2 text-xs font-medium text-[#7A756B] transition hover:bg-[#F1EDE5]">
+            换一版 Brief
+          </button>
         </div>
       );
     }
@@ -659,13 +780,9 @@ export default function Home() {
         <Card>
           {previewUrl && (
             /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={previewUrl}
-              alt="原图"
-              className="mb-3 max-h-48 w-full rounded-xl border border-[#E5E5E7] bg-white object-contain"
-            />
+            <img src={previewUrl} alt="原图" className="mb-3 max-h-48 w-full rounded-xl border border-[#E5DED2] bg-white object-contain shadow-sm" />
           )}
-          <p className="text-xs text-[#6B6B6E]">原图</p>
+          <p className="text-xs text-[#7A756B]">原图</p>
           {step === "complete" && (
             <div className="mt-4 flex flex-col gap-2">
               <SecondaryButton onClick={regenerateAll}>重新生成</SecondaryButton>
@@ -684,38 +801,43 @@ export default function Home() {
   function renderRightPane() {
     if (step === "input") {
       return (
-        <Card>
-          <div className="flex flex-col gap-4 text-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-[#AEAEB2]">工作流说明</p>
-            <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3">
+          {/* Workspace canvas area */}
+          <div className="rounded-xl border border-[#DED6C9] bg-[#E8E3D8] p-5 shadow-sm">
+            <p className="mb-4 text-[10px] font-semibold uppercase tracking-widest text-[#A09890]">AI 将为你完成</p>
+            <div className="flex flex-col gap-2.5">
               {[
-                { step: "01", label: "上传商品图", desc: "白底或简单背景效果最佳" },
-                { step: "02", label: "AI 分析方案", desc: "识别品类、卖点、视觉风格" },
-                { step: "03", label: "确认并编辑文案", desc: "可修改每张图的标题与卖点" },
-                { step: "04", label: "生成 4 张场景图", desc: "拼多多主图规格，可直接上传" },
-              ].map(({ step: s, label, desc }) => (
-                <div key={s} className="flex gap-3">
-                  <span className="mt-0.5 shrink-0 text-[11px] font-semibold text-[#AEAEB2]">{s}</span>
+                { icon: "🔍", title: "识别商品品类与外观特征", desc: "自动判断产品类型、颜色、包装形态" },
+                { icon: "✨", title: "提炼核心卖点与差异化优势", desc: "从视觉信息中提取 3 个可用于文案的卖点" },
+                { icon: "🎨", title: "规划 4 张图片的用途与构图", desc: "主视觉图 · 痛点图 · 场景图 · 卖点图" },
+                { icon: "📝", title: "生成每张图的独立文案", desc: "主标题 · 副标题 · 卖点短句，可编辑" },
+              ].map(({ icon, title, desc }) => (
+                <div key={title} className="flex gap-3 rounded-lg bg-[#F8F5EE] px-3 py-2.5 shadow-sm">
+                  <span className="mt-0.5 text-base leading-none">{icon}</span>
                   <div>
-                    <p className="text-sm font-medium text-[#1A1A1A]">{label}</p>
-                    <p className="text-xs text-[#AEAEB2]">{desc}</p>
+                    <p className="text-sm font-medium text-[#2B2925]">{title}</p>
+                    <p className="mt-0.5 text-xs text-[#A09890]">{desc}</p>
                   </div>
                 </div>
               ))}
             </div>
-            <div className="rounded-lg bg-[#F5F5F7] px-3 py-2.5 text-xs text-[#6B6B6E]">
-              当前支持品类：护肤品（面霜、精华、洁面、防晒等）
-            </div>
           </div>
-        </Card>
+
+          {/* Output preview placeholder */}
+          <div className="rounded-xl border border-dashed border-[#D8D0C3] bg-[#EDE8DF] p-5">
+            <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#A09890]">生成结果预览区</p>
+            <div className="aspect-square w-full rounded-lg border border-[#D8D0C3] bg-[#F8F5EE] shadow-sm" />
+            <p className="mt-3 text-center text-xs text-[#A09890]">上传商品图后，AI 将自动生成主图</p>
+          </div>
+        </div>
       );
     }
 
     if (step === "analyzing") {
       return (
-        <Card>
+        <div className="rounded-xl border border-[#DED6C9] bg-[#E8E3D8] p-5 shadow-sm">
           <div className="flex flex-col gap-3">
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#AEAEB2]">分析进行中</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#A09890]">分析进行中</p>
             <div className="flex flex-col gap-2.5 pt-1">
               {[
                 "识别产品品类与外观特征",
@@ -730,214 +852,119 @@ export default function Home() {
                 </div>
               ))}
             </div>
-            <p className="mt-1 text-[11px] text-[#AEAEB2]">方案即将生成...</p>
+            <p className="mt-1 text-[11px] text-[#A09890]">方案即将生成...</p>
           </div>
-        </Card>
+        </div>
       );
     }
 
-    if (step === "plan" && plan) {
+    if (step === "plan" && brief) {
       return (
         <div className="flex flex-col gap-4">
           <Card>
             <div className="flex flex-col gap-4">
               <CardSection title="产品识别">
-                <div className="flex flex-col gap-1">
-                  <p>
-                    <span className="font-medium">产品类型: </span>
-                    {plan.product_type}
-                  </p>
-                  <p className="text-[#6B6B6E]">{plan.visual_features}</p>
-                </div>
+                <p className="font-medium">{brief.product_type}</p>
               </CardSection>
 
               <CardSection title="核心卖点">
                 <ul className="flex flex-col gap-1">
-                  {plan.selling_points.map((p, i) => (
+                  {brief.selling_points.map((sp, i) => (
                     <li key={i} className="flex gap-2">
-                      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#2563EB] text-[10px] font-semibold text-white">
+                      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#111111] text-[10px] font-semibold text-white">
                         {i + 1}
                       </span>
-                      <span>{p}</span>
+                      <span>{sp}</span>
                     </li>
                   ))}
                 </ul>
               </CardSection>
 
-              <CardSection title="视觉风格">
-                <p className="rounded-lg bg-[#FAFAFA] px-3 py-2">{plan.visual_style}</p>
+              <CardSection title="主标题方向">
+                <p className="rounded-lg bg-[#F1EDE5] px-3 py-2 font-medium">{brief.main_title}</p>
               </CardSection>
 
-              <CardSection title="色彩系统">
-                <p>{plan.color_system}</p>
+              <CardSection title="视觉风格">
+                <p className="text-[#6B6660]">{brief.visual_style}</p>
               </CardSection>
             </div>
           </Card>
 
           <Card>
-            <CardSection title="图片规划">
-              <ol className="flex flex-col gap-3">
-                {plan.image_plan.map((item, i) => (
-                  <li
-                    key={item.id}
-                    className="flex flex-col gap-1 rounded-xl border border-[#E5E5E7] p-3"
-                  >
-                    <div className="flex items-baseline gap-2">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#1A1A1A] text-[10px] font-semibold text-white">
-                        {i + 1}
-                      </span>
-                      <span className="text-sm font-medium text-[#1A1A1A]">
-                        {item.title}
-                      </span>
-                    </div>
-                    <p className="ml-7 text-xs text-[#6B6B6E]">{item.purpose}</p>
-                  </li>
-                ))}
-              </ol>
-            </CardSection>
-          </Card>
-
-          <Card>
             <CardSection title={`${PLATFORM_SPEC.name} 平台规范`}>
-              <ul className="flex flex-col gap-1 text-xs text-[#6B6B6E]">
+              <ul className="flex flex-col gap-1 text-xs text-[#7A756B]">
                 {PLATFORM_SPEC.rules.map((r, i) => (
                   <li key={i}>· {r}</li>
                 ))}
               </ul>
             </CardSection>
           </Card>
-
-          {Object.keys(editedCopies).length > 0 && plan && (
-            <Card>
-              <CardSection title="文案编辑（按场景）">
-                <div className="flex flex-col gap-6 pt-1">
-                  {plan.image_plan.map((item) => {
-                    const c = editedCopies[item.id];
-                    if (!c) return null;
-                    const setC = (updater: (prev: CopyData) => CopyData) =>
-                      setEditedCopies((prev) => ({ ...prev, [item.id]: updater(prev[item.id]) }));
-                    return (
-                      <div key={item.id} className="flex flex-col gap-3 rounded-xl border border-[#E5E5E7] p-3">
-                        <p className="text-xs font-semibold text-[#1A1A1A]">{item.title}</p>
-
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[11px] text-[#6B6B6E]">主标题</label>
-                          <input type="text" value={c.main_title}
-                            onChange={(e) => setC((p) => ({ ...p, main_title: e.target.value }))}
-                            className="rounded-lg border border-[#E5E5E7] bg-[#FAFAFA] px-3 py-1.5 text-sm outline-none focus:border-[#2563EB] focus:bg-white" />
-                        </div>
-
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[11px] text-[#6B6B6E]">副标题</label>
-                          <input type="text" value={c.sub_title}
-                            onChange={(e) => setC((p) => ({ ...p, sub_title: e.target.value }))}
-                            className="rounded-lg border border-[#E5E5E7] bg-[#FAFAFA] px-3 py-1.5 text-sm outline-none focus:border-[#2563EB] focus:bg-white" />
-                        </div>
-
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[11px] text-[#6B6B6E]">卖点（3条）</label>
-                          {c.bullets.map((b, i) => (
-                            <input key={i} type="text" value={b}
-                              onChange={(e) => setC((p) => { const bullets = [...p.bullets]; bullets[i] = e.target.value; return { ...p, bullets }; })}
-                              className="rounded-lg border border-[#E5E5E7] bg-[#FAFAFA] px-3 py-1.5 text-sm outline-none focus:border-[#2563EB] focus:bg-white"
-                              placeholder={`卖点 ${i + 1}`} />
-                          ))}
-                        </div>
-
-                        <button type="button"
-                          onClick={() => setC(() => ({ ...item.copy, bullets: [...item.copy.bullets], side_badges: [...item.copy.side_badges] }))}
-                          className="self-start text-[11px] text-[#6B6B6E] underline underline-offset-2 hover:text-[#1A1A1A]">
-                          恢复此场景原始文案
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardSection>
-            </Card>
-          )}
         </div>
       );
     }
 
     if ((step === "generating" || step === "complete") && results.length > 0) {
-      const doneCount = results.filter((r) => r.status === "done").length;
+      const anyLoading = results.some((r) => r.status === "loading");
+      const isBatch = results.length > 1;
       return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
           {/* Status bar */}
-          <div className="flex items-center justify-between rounded-xl border border-[#E8E8EA] bg-white px-4 py-3">
+          <div className="flex items-center justify-between rounded-xl border border-[#E5DED2] bg-[#FFFCF6] px-4 py-3 shadow-sm">
             <div className="flex items-center gap-2">
               {step === "complete" ? (
                 <>
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#1A1A1A] text-white">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#111111] text-white">
                     <CheckIcon />
                   </span>
-                  <span className="text-sm font-medium text-[#1A1A1A]">生成完成</span>
+                  <span className="text-sm font-medium text-[#111111]">
+                    {isBatch ? `生成完成（共 ${results.length} 张）` : "生成完成"}
+                  </span>
                 </>
               ) : (
                 <>
-                  <svg className="spin-slow text-[#1A1A1A]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                  <svg className="spin-slow text-[#111111]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
                     <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                   </svg>
-                  <span className="text-sm font-medium text-[#1A1A1A]">生成中</span>
+                  <span className="text-sm font-medium text-[#111111]">
+                    {isBatch
+                      ? `生成中 ${results.filter((r) => r.status !== "loading").length}/${results.length}`
+                      : "生成中"}
+                  </span>
                 </>
               )}
             </div>
-            <span className="text-xs text-[#AEAEB2]">{doneCount} / {results.length} 张完成</span>
+            {anyLoading && (
+              <span className="text-xs text-[#A09890]">约 60–90 秒/张</span>
+            )}
           </div>
 
-          {/* Score */}
-          {step === "complete" && score && (
-            <div className="rounded-xl border border-[#E8E8EA] bg-white px-4 py-3">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-[#AEAEB2]">文案评分</p>
-                <span className="rounded bg-[#F0F0F2] px-2 py-0.5 text-[10px] text-[#6B6B6E]">规则评分 · 仅供参考</span>
-              </div>
-              <div className="grid grid-cols-4 gap-2">
-                {([
-                  { label: "CTR 潜力", value: score.ctrPotential },
-                  { label: "主体清晰", value: score.subjectClarity },
-                  { label: "平台匹配", value: score.pddMatch },
-                  { label: "AI 模板感", value: score.aiTemplateFeeling, invert: true },
-                ] as { label: string; value: number; invert?: boolean }[]).map(({ label, value, invert }) => {
-                  const good = invert ? value < 60 : value >= 70;
-                  const mid = invert ? value < 75 : value >= 55;
-                  const color = good ? "#1A1A1A" : mid ? "#D97706" : "#DC2626";
-                  return (
-                    <div key={label} className="flex flex-col items-center gap-1 rounded-lg bg-[#F5F5F7] py-2.5">
-                      <span className="text-[10px] text-[#AEAEB2]">{label}</span>
-                      <span className="text-base font-semibold" style={{ color }}>{value}</span>
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="mt-2 text-[10px] text-[#AEAEB2]">AI 模板感越低越好</p>
+          {step === "complete" && (
+            <div className="rounded-xl border border-[#E5DED2] bg-[#FFFCF6] px-4 py-3 shadow-sm">
+              <p className="text-[11px] text-[#A09890]">
+                AI 生成结果建议人工复核后使用，尤其是商品主体、品牌标识和功效表述。
+              </p>
             </div>
           )}
 
-          {/* Image workflow — vertical list like an e-commerce detail page */}
-          <div className="flex flex-col gap-3">
-            {results.map((r, i) => (
-              <div key={i} className="rounded-xl border border-[#E8E8EA] bg-white overflow-hidden">
-                <div className="flex items-center justify-between border-b border-[#F0F0F2] px-4 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-5 w-5 items-center justify-center rounded bg-[#F0F0F2] text-[10px] font-semibold text-[#6B6B6E]">
-                      {i + 1}
-                    </span>
-                    <span className="text-sm font-medium text-[#1A1A1A]">{r.planItem.title}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
+          {/* Image grid — 1 col for single, 2 col for batch */}
+          <div className={isBatch ? "grid grid-cols-2 gap-3" : "flex flex-col gap-3"}>
+            {results.map((r, idx) => (
+              <div key={idx} className="overflow-hidden rounded-xl border border-[#E5DED2] bg-[#FFFCF6] shadow-sm">
+                <div className="flex items-center justify-between border-b border-[#EDE7DC] px-3 py-2">
+                  <span className="text-xs font-medium text-[#111111]">
+                    {isBatch ? `第 ${idx + 1} 张` : "主图"}
+                  </span>
+                  <div className="flex items-center gap-1.5">
                     {r.status === "done" && (
-                      <span className="rounded bg-[#F0F0F2] px-2 py-0.5 text-[10px] text-[#6B6B6E]">800×800</span>
+                      <span className="rounded bg-[#EDE7DC] px-1.5 py-0.5 text-[10px] text-[#7A756B]">1024×1024</span>
                     )}
                     {r.status === "loading" && (
-                      <span className="text-[11px] text-[#AEAEB2]">生成中...</span>
-                    )}
-                    {r.status === "composing" && (
-                      <span className="text-[11px] text-[#AEAEB2]">合成文案...</span>
-                    )}
-                    {r.status === "pending" && (
-                      <span className="text-[11px] text-[#AEAEB2]">等待中</span>
+                      <span className="flex items-center gap-1 text-[11px] text-[#A09890]">
+                        <svg className="spin-slow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                        </svg>
+                        生成中
+                      </span>
                     )}
                     {r.status === "error" && (
                       <span className="text-[11px] text-red-500">失败</span>
@@ -945,50 +972,44 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="flex gap-4 p-4">
-                  {/* Image */}
-                  <div className="aspect-square w-48 shrink-0 overflow-hidden rounded-lg border border-[#E8E8EA] bg-[#F5F5F7]">
-                    {r.status === "done" && (r.composedUrl || r.imageUrl) ? (
+                <div className="p-3">
+                  <div
+                    className={"aspect-square w-full overflow-hidden rounded-lg border border-[#E5DED2] bg-[#F1EDE5] " + (r.status === "done" ? "cursor-zoom-in" : "")}
+                    onClick={() => r.status === "done" && setLightboxIdx(idx)}
+                    title={r.status === "done" ? "点击查看大图" : undefined}
+                  >
+                    {r.status === "done" && r.imageUrl ? (
                       /* eslint-disable-next-line @next/next/no-img-element */
-                      <img
-                        src={r.composedUrl || r.imageUrl}
-                        alt={r.planItem.title}
-                        className="h-full w-full object-cover"
-                      />
+                      <img src={r.imageUrl} alt={`生成主图 ${idx + 1}`} className="h-full w-full object-contain" />
                     ) : r.status === "error" ? (
                       <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-3 text-center">
-                        <span className="text-xs text-red-500">生成失败</span>
+                        <span className="text-xs text-red-500">{r.error ?? "生成失败"}</span>
                       </div>
                     ) : (
                       <div className="skeleton h-full w-full" />
                     )}
                   </div>
 
-                  {/* Meta */}
-                  <div className="flex flex-1 flex-col justify-between gap-3">
-                    <div className="flex flex-col gap-1.5">
-                      <p className="text-[11px] font-semibold uppercase tracking-widest text-[#AEAEB2]">场景说明</p>
-                      <p className="text-sm text-[#1A1A1A]">{r.planItem.purpose}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      {r.status === "done" ? (
-                        <button
-                          type="button"
-                          onClick={() => downloadOne(i)}
-                          className="rounded-lg bg-[#1A1A1A] px-4 py-2 text-xs font-medium text-white transition hover:bg-[#333]"
-                        >
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {r.status === "done" && (
+                      <>
+                        <button type="button" onClick={() => setLightboxIdx(idx)}
+                          className="rounded-lg border border-[#DED6C9] bg-[#F1EDE5] px-2.5 py-1.5 text-xs font-medium text-[#2B2925] transition hover:bg-[#EAE4DA]">
+                          大图
+                        </button>
+                        <button type="button" onClick={() => downloadOne(idx)}
+                          className="rounded-lg bg-[#111111] px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-[#2B2925]">
                           下载
                         </button>
-                      ) : r.status === "error" ? (
-                        <button
-                          type="button"
-                          onClick={() => { if (imageDataUrl) generateOne(r.planItem, i, imageDataUrl); }}
-                          className="rounded-lg border border-[#E8E8EA] px-4 py-2 text-xs font-medium text-[#1A1A1A] transition hover:bg-[#F5F5F7]"
-                        >
-                          重试
-                        </button>
-                      ) : null}
-                    </div>
+                      </>
+                    )}
+                    {r.status === "error" && (
+                      <button type="button"
+                        onClick={() => { if (brief && imageDataUrl) generateOne(brief, imageDataUrl); }}
+                        className="rounded-lg border border-[#DED6C9] bg-[#F1EDE5] px-2.5 py-1.5 text-xs font-medium text-[#2B2925] transition hover:bg-[#EAE4DA]">
+                        重试
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -997,18 +1018,8 @@ export default function Home() {
 
           {step === "complete" && (
             <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={downloadAll}
-                className="flex-1 rounded-lg bg-[#1A1A1A] px-5 py-2.5 text-sm font-medium text-white transition hover:bg-[#333]"
-              >
-                批量下载
-              </button>
-              <button
-                type="button"
-                onClick={regenerateAll}
-                className="flex-1 rounded-lg border border-[#E8E8EA] bg-white px-5 py-2.5 text-sm font-medium text-[#1A1A1A] transition hover:bg-[#F5F5F7]"
-              >
+              <button type="button" onClick={regenerateAll}
+                className="flex-1 rounded-lg border border-[#DED6C9] bg-[#F1EDE5] px-5 py-2.5 text-sm font-medium text-[#2B2925] transition hover:bg-[#EAE4DA]">
                 重新生成
               </button>
             </div>
@@ -1021,44 +1032,196 @@ export default function Home() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col bg-[#F5F5F7] text-[#1A1A1A]">
-      <div className="mx-auto flex w-full max-w-[1100px] flex-1 flex-col gap-5 px-4 py-5 sm:py-7">
+    <main className="flex min-h-screen flex-col bg-[#F6F3EA] text-[#111111]">
+      {/* Lightbox */}
+      {lightboxIdx !== null && results[lightboxIdx] && (() => {
+        const r = results[lightboxIdx];
+        const url = r.imageUrl;
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
+            onClick={() => setLightboxIdx(null)}
+          >
+            <div
+              className="relative flex w-full max-w-2xl flex-col gap-4 rounded-2xl bg-[#FFFCF6] p-5 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal header */}
+              <div className="flex items-start justify-between gap-3">
+                <span className="text-sm font-semibold text-[#111111]">主图大图预览</span>
+                <button
+                  type="button"
+                  onClick={() => setLightboxIdx(null)}
+                  className="shrink-0 rounded-lg border border-[#DED6C9] bg-[#F1EDE5] px-2.5 py-1.5 text-xs font-medium text-[#2B2925] transition hover:bg-[#EAE4DA]"
+                  aria-label="关闭"
+                >
+                  关闭
+                </button>
+              </div>
+
+              {/* Image */}
+              <div className="overflow-hidden rounded-xl border border-[#E5DED2] bg-[#F1EDE5]">
+                {url ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={url} alt="生成主图" className="w-full object-contain" />
+                ) : (
+                  <div className="flex aspect-square items-center justify-center text-xs text-[#A09890]">暂无图片</div>
+                )}
+              </div>
+
+              {/* Review notice */}
+              <p className="text-[11px] text-[#A09890]">
+                使用前请复核商品结构、品牌标识、包装文字和文案是否与真实商品一致。
+              </p>
+
+              {/* Actions */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => downloadOne(lightboxIdx)}
+                  disabled={r.status !== "done"}
+                  className="flex-1 rounded-lg bg-[#111111] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#2B2925] disabled:cursor-not-allowed disabled:bg-[#C8C0B4]"
+                >
+                  下载
+                </button>
+                <button
+                  type="button"
+                  disabled={!brief || !imageDataUrl || r.status === "loading"}
+                  onClick={() => {
+                    if (!brief || !imageDataUrl) return;
+                    generateOne(brief, imageDataUrl);
+                  }}
+                  className="flex-1 rounded-lg border border-[#DED6C9] bg-[#F1EDE5] px-4 py-2.5 text-sm font-medium text-[#2B2925] transition hover:bg-[#EAE4DA] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {r.status === "loading" ? "生成中…" : "重新生成"}
+                </button>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
+      <div className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col gap-4 px-4 py-5 sm:py-6">
 
         {/* Header */}
-        <header className="flex items-center justify-between border-b border-[#E8E8EA] pb-4">
+        <header className="flex items-center justify-between border-b border-[#E5DED2] pb-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1A1A1A]">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#111111]">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <rect x="3" y="3" width="18" height="18" rx="2" />
                 <path d="M3 9h18M9 21V9" />
               </svg>
             </div>
             <div>
-              <h1 className="text-sm font-semibold tracking-tight text-[#1A1A1A]">LightPic</h1>
-              <p className="text-[11px] text-[#AEAEB2]">AI 电商主图生成</p>
+              <div className="flex items-center gap-2">
+                <h1 className="text-sm font-semibold tracking-tight text-[#111111]">LightPic</h1>
+                <span className="rounded bg-[#EDE7DC] px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-[#7A756B]">Beta</span>
+              </div>
+              <p className="text-[11px] text-[#A09890]">AI 商品图工作台</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="rounded-md bg-[#F0F0F2] px-2.5 py-1 text-[11px] font-medium text-[#6B6B6E]">拼多多</span>
-            <span className="rounded-md bg-[#F0F0F2] px-2.5 py-1 text-[11px] font-medium text-[#6B6B6E]">护肤品类</span>
+            <span className="rounded-md border border-[#DED6C9] bg-[#F1EDE5] px-2.5 py-1 text-[11px] font-medium text-[#7A756B]">
+              {PLATFORMS.find(p => p.id === platform)?.label ?? "拼多多"}
+            </span>
+            <span className="rounded-md border border-[#DED6C9] bg-[#F1EDE5] px-2.5 py-1 text-[11px] font-medium text-[#7A756B]">
+              {CATEGORIES.find(c => c.id === category)?.label ?? "美妆护肤"}
+            </span>
           </div>
         </header>
 
-        {/* Step bar */}
-        <div className="rounded-xl border border-[#E8E8EA] bg-white px-5 py-4">
-          <StepIndicator current={step} />
+        {/* Hero */}
+        <div className="rounded-xl border border-[#E5DED2] bg-[#FFFCF6] px-6 py-6 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-10">
+            <div className="flex flex-col gap-3 lg:max-w-xl">
+              <h2 className="text-xl font-semibold leading-snug text-[#111111]">
+                上传一张商品图，生成一套电商视觉方案
+              </h2>
+              <p className="text-sm text-[#6B6660] leading-relaxed">
+                AI 自动分析商品特征、提炼卖点、规划主视觉图、场景图和卖点图，帮助小团队快速获得可复核的商品图初稿。
+              </p>
+              <p className="text-xs text-[#A09890]">
+                传统商品图制作成本高、沟通慢、反复改；LightPic 先帮助你快速生成可复核的视觉初稿。
+              </p>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => workbenchRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  className="rounded-lg bg-[#111111] px-5 py-2.5 text-sm font-medium text-white transition hover:bg-[#2B2925]"
+                >
+                  开始生成
+                </button>
+                {/* 查看示例：前端占位，暂无真实示例区，点击滚动到工作台 */}
+                <button
+                  type="button"
+                  onClick={() => workbenchRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  className="rounded-lg border border-[#DED6C9] bg-[#F1EDE5] px-5 py-2.5 text-sm font-medium text-[#2B2925] transition hover:bg-[#EAE4DA]"
+                >
+                  查看示例
+                </button>
+              </div>
+            </div>
+            <div className="shrink-0">
+              <StepIndicator current={step} />
+            </div>
+          </div>
         </div>
 
-        <div className="grid flex-1 grid-cols-1 gap-5 lg:grid-cols-[minmax(280px,340px)_1fr]">
-          <div className="flex flex-col gap-4">
+        {/* Capability matrix */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {[
+            {
+              title: "商品图方案",
+              status: "当前可用",
+              statusColor: "bg-[#D1FAE5] text-[#065F46]",
+              desc: "上传商品图，生成主视觉图、场景图、卖点图，形成一套可复核的商品图初稿。",
+            },
+            {
+              title: "主图 & 详情图",
+              status: "当前可用",
+              statusColor: "bg-[#D1FAE5] text-[#065F46]",
+              desc: "AI 规划商品图用途与详情页卖点结构，帮助快速形成电商视觉初稿。",
+            },
+            {
+              title: "风格参考 / 爆款复刻",
+              status: "规划中",
+              statusColor: "bg-[#EDE7DC] text-[#7A756B]",
+              desc: "参考优秀商品图的构图、配色和视觉语言，生成相似风格方案。",
+            },
+            {
+              title: "多平台适配",
+              status: "部分可用",
+              statusColor: "bg-[#FEF3C7] text-[#92400E]",
+              desc: "面向拼多多、淘宝、小红书等平台调整视觉表达与文案语气。",
+            },
+          ].map(({ title, status, statusColor, desc }) => (
+            <div key={title} className="flex flex-col gap-2 rounded-xl border border-[#E5DED2] bg-[#FFFCF6] p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm font-semibold text-[#111111]">{title}</p>
+                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${statusColor}`}>{status}</span>
+              </div>
+              <p className="text-xs text-[#7A756B] leading-relaxed">{desc}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Workbench */}
+        <div ref={workbenchRef} className="flex flex-col gap-2">
+          <div className="flex flex-col gap-0.5">
+            <h3 className="text-sm font-semibold text-[#111111]">商品图生成工作台</h3>
+            <p className="text-xs text-[#A09890]">上传商品图，补充 brief，生成一套可下载、可人工复核的商品图方案。</p>
+          </div>
+        <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(260px,320px)_1fr]">
+          <div className="flex flex-col gap-3">
             {renderLeftPane()}
           </div>
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3">
             {renderRightPane()}
           </div>
         </div>
+        </div>
 
-        <footer className="mt-auto pt-4 text-center text-[11px] text-[#AEAEB2]">
+        <footer className="mt-auto pt-3 text-center text-[11px] text-[#C8C0B4]">
           LightPic · 轻图 · AI 驱动的电商商品图工具
         </footer>
       </div>
