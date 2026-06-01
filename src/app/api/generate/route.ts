@@ -110,10 +110,32 @@ type Brief = {
   subtitle?: string;
 };
 
+function inferVisualTheme(type: string, visualStyle: string): string {
+  const combined = (type + " " + visualStyle).toLowerCase();
+
+  if (/紫|妆前|隔离|打底|makeup.?base|primer/.test(combined)) {
+    return "淡紫色调为主视觉色，奶灰紫或柔雾紫背景，标题、卖点pill、底部信任条、官方正品角标均使用淡紫或银白色系，整体轻透底妆感";
+  }
+  if (/黑|金|高端|奢|luxury|black|gold/.test(combined)) {
+    return "黑金色调为主视觉色，深色或黑色背景，标题使用香槟金或白色，卖点pill和底部条使用深金或哑光黑，整体高级质感";
+  }
+  if (/蓝|绿|水|海洋|清透|blue|green|aqua/.test(combined)) {
+    return "清透蓝绿色调为主视觉色，浅蓝或薄荷绿背景，标题和卖点pill使用深蓝或白色，底部条使用浅蓝，整体水感清爽";
+  }
+  if (/棕|茶|卸妆|植萃|木|amber|brown|cleansing/.test(combined)) {
+    return "茶棕色调为主视觉色，米白或琥珀色背景，标题使用深棕或白色，卖点pill和底部条使用暖棕或米白，整体植萃清洁感";
+  }
+  if (/粉底|遮瑕|裸|奶油|肤|foundation|concealer|nude/.test(combined)) {
+    return "米裸色调为主视觉色，奶咖或香槟金背景，标题使用玫瑰金或深棕，卖点pill和底部条使用米白或玫瑰金，整体自然肤感";
+  }
+  // default: skincare / sunscreen / general — soft pink-white, NOT saturated red
+  return "低饱和粉白色调为主视觉色，柔和奶白或水光粉背景，标题使用深色或柔和玫瑰粉，卖点pill和底部条使用浅粉或白色，整体清爽轻盈感";
+}
+
 function buildMainImagePrompt(brief: Brief): string {
   const type = brief.product_type ?? "护肤品";
+  const visualStyle = brief.visual_style ?? "";
   const points = (brief.selling_points ?? []).slice(0, 3).map((p) =>
-    // trim to ≤6 chars so gpt-image-2 renders them reliably
     p.replace(/[，,。.、\s]/g, "").slice(0, 8)
   );
   const mainTitle = (brief.main_title ?? "").slice(0, 10);
@@ -122,18 +144,31 @@ function buildMainImagePrompt(brief: Brief): string {
   const titleLine = mainTitle || "核心功效";
   const subtitleLine = subtitle || "";
   const bulletsText = points.length > 0 ? points.join(" / ") : "高品质";
+  const visualTheme = inferVisualTheme(type, visualStyle);
 
   return (
-    `拼多多800x800商品主图，目标提升点击率和成交率。` +
-    `商品类型：${type}。` +
-    `商品主体：保持原图包装完全不变，放在画面右侧，占画面高度45%-50%，清晰完整。` +
-    `左侧大标题："${titleLine}"，粗体，颜色与背景高对比。` +
-    (subtitleLine ? `副标题："${subtitleLine}"，在大标题下方，字号略小。` : "") +
-    `左下三条卖点：✓${bulletsText.split(" / ").join(" ✓")}，字号适中。` +
-    `右上角"官方正品"圆章。` +
-    `底部横条文字："官方正品 · 品质保证 · 放心购买"。` +
-    `风格：粉白清爽电商风，信息密度高，不要大面积留白，不要高级杂志感。` +
-    `禁止：真人、人脸、虚构销量评价成分、原图没有的文字水印。`
+    // 1. 平台与图类型
+    `拼多多800x800商品主图，目标提升点击率和成交率，适合手机端快速理解。` +
+
+    // 2. 商品主体保真
+    `商品主体：保持原图包装形状、颜色、品牌logo、瓶身结构完全不变，放在画面右侧，占画面高度45%-50%，清晰完整，不变形，不裁切，不改色。` +
+
+    // 3. 主图版式结构
+    `版式：左侧大标题"${titleLine}"，粗体；` +
+    (subtitleLine ? `副标题"${subtitleLine}"在大标题下方，字号略小；` : "") +
+    `左下三条卖点pill：✓${bulletsText.split(" / ").join(" ✓")}；右上角官方正品角标；底部信任条文字"官方正品 · 品质保证 · 放心购买"。` +
+
+    // 4. 视觉主题自适应
+    `视觉主题：${visualTheme}。` +
+    `不要把拼多多风格理解为固定红色促销模板。除非商品本身是红色系，否则不要使用高饱和大红或玫红作为主视觉色。` +
+    `整体配色应像专业设计师根据当前商品定制，而不是套同一张模板。` +
+    `标题颜色、卖点pill背景色和文字色、官方正品角标颜色、底部信任条颜色，全部跟随上述视觉主题，不要单独使用红色。` +
+
+    // 5. 电商感要求
+    `整体是拼多多官方店铺商品主图，信息清晰、点击感强，信息密度适中，不要大面积留白，不要高级杂志大片感，也不要廉价促销牛皮癣感。` +
+
+    // 6. 禁止事项
+    `禁止：真人、人脸、虚构销量评价成分认证、原图没有的文字水印、改变商品包装颜色或结构。`
   );
 }
 
