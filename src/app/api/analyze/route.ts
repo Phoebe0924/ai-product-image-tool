@@ -1,11 +1,36 @@
-// Shiyun proxy requires "Authorization: Bearer <key>" instead of "x-api-key".
-// We use raw fetch so we control the auth header; the SDK sends x-api-key which
-// Shiyun silently rejects with a 502.
-async function callClaudeViaShiyun(
+import {
+  openAiErrorResponse,
+  proxyToStableApi,
+} from "@/lib/server/api-proxy";
+
+async function callClaudeMessages(
   endpoint: string,
   apiKey: string,
   payload: Record<string, unknown>,
+  authMode: "anthropic" | "bearer",
 ): Promise<unknown> {
+  const authHeaders: Record<string, string> =
+    authMode === "anthropic"
+      ? { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }
+      : { Authorization: `Bearer ${apiKey}` };
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${text.slice(0, 300)}`);
+  }
+  return res.json();
+}
+
+async function callOpenAIResponses(apiKey: string, payload: Record<string, unknown>): Promise<unknown> {
+  const baseURL = process.env.OPENAI_BASE_URL?.trim() || "https://api.openai.com";
+  const endpoint = `${baseURL.replace(/\/$/, "")}/v1/responses`;
   const res = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -23,6 +48,7 @@ async function callClaudeViaShiyun(
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+export const preferredRegion = "iad1";
 
 const SYSTEM_PROMPT = `你是拼多多护肤品/美妆商品图方案专家。
 
@@ -286,15 +312,25 @@ function extractJson(raw: string): unknown {
 export async function POST(req: Request): Promise<Response> {
   const t0 = Date.now();
   try {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const proxied = await proxyToStableApi(req, "/api/analyze");
+    if (proxied) return proxied;
+
+    const analyzeProvider = process.env.ANALYZE_PROVIDER ?? "openai";
+    const openaiKey = process.env.OPENAI_API_KEY;
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
     const baseURL = process.env.ANTHROPIC_BASE_URL?.trim() || undefined;
     console.log(
-      "[analyze] anthropic key present:",
-      Boolean(apiKey),
-      "baseURL:",
+      "[analyze] provider:",
+      analyzeProvider,
+      "| openai key present:",
+      Boolean(openaiKey),
+      "| anthropic key present:",
+      Boolean(anthropicKey),
+      "| anthropic baseURL:",
       baseURL ?? "(default api.anthropic.com)",
     );
-    if (!apiKey) return jsonError(500, "Server is missing ANTHROPIC_API_KEY");
+    if (analyzeProvider === "openai" && !openaiKey) return jsonError(500, "Server is missing OPENAI_API_KEY");
+    if (analyzeProvider === "anthropic" && !anthropicKey) return jsonError(500, "Server is missing ANTHROPIC_API_KEY");
 
     let body: unknown;
     try {
@@ -318,33 +354,12 @@ export async function POST(req: Request): Promise<Response> {
       return jsonError(400, `Unsupported media type: ${mediaType}`);
     }
 
-    const messagesEndpoint = baseURL
-      ? `${baseURL.replace(/\/$/, "")}/v1/messages`
-      : "https://api.anthropic.com/v1/messages";
-    console.log("[analyze] endpoint:", messagesEndpoint);
-
     const descHint =
       typeof productDescription === "string" && productDescription.trim()
         ? `\n\n用户补充说明：「${productDescription.trim()}」——请以此为准确认产品品类，不要仅依赖视觉推断。`
         : "";
 
-    let claudeResp: unknown;
-    try {
-      claudeResp = await callClaudeViaShiyun(messagesEndpoint, apiKey, {
-        model: "claude-sonnet-4-5-20250929",
-        max_tokens: 1024,
-        system: SYSTEM_PROMPT,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "image",
-                source: { type: "base64", media_type: mediaType, data: base64 },
-              },
-              {
-                type: "text",
-                text: `分析这张护肤品产品图。${descHint}
+    const instructionText = `分析这张护肤品产品图。${descHint}
 
 你必须只输出一个 JSON 对象，格式如下，不要输出任何其他内容：
 {"product_type":"防晒霜","selling_points":["卖点1","卖点2","卖点3"],"pain_points":["痛点1","痛点2","痛点3"],"visual_style":"视觉风格描述","main_title":"主标题","subtitle":"副标题"}
@@ -357,36 +372,97 @@ export async function POST(req: Request): Promise<Response> {
 - main_title：≤12字，直接说用户结果
 - subtitle：≤16字
 
-只输出JSON，第一个字符是{，最后一个字符是}，不要Markdown，不要解释。`,
+只输出JSON，第一个字符是{，最后一个字符是}，不要Markdown，不要解释。`;
+
+    let rawText = "";
+    let usage: unknown;
+    if (analyzeProvider === "anthropic") {
+      const messagesEndpoint = baseURL
+        ? `${baseURL.replace(/\/$/, "")}/v1/messages`
+        : "https://api.anthropic.com/v1/messages";
+      console.log("[analyze] anthropic endpoint:", messagesEndpoint);
+
+      let claudeResp: unknown;
+      try {
+        claudeResp = await callClaudeMessages(
+          messagesEndpoint,
+          anthropicKey as string,
+          {
+            model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6",
+            max_tokens: 1024,
+            system: SYSTEM_PROMPT,
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "image",
+                    source: { type: "base64", media_type: mediaType, data: base64 },
+                  },
+                  {
+                    type: "text",
+                    text: instructionText,
+                  },
+                ],
               },
             ],
           },
-        ],
-      });
-    } catch (e) {
-      console.error("[analyze] Claude fetch failed:", String(e));
-      return jsonError(502, `Failed to reach Claude API: ${String(e)}`);
+          baseURL ? "bearer" : "anthropic",
+        );
+      } catch (e) {
+        console.error("[analyze] Claude fetch failed:", String(e));
+        return jsonError(502, `Failed to reach Claude API: ${String(e)}`);
+      }
+
+      const response = claudeResp as {
+        usage?: { input_tokens?: number; output_tokens?: number };
+        content?: { type: string; text?: string }[];
+      };
+      usage = response.usage;
+      const textBlock = response.content?.find((b) => b.type === "text");
+      if (!textBlock || textBlock.type !== "text" || !textBlock.text) {
+        return jsonError(502, "Claude returned no text block");
+      }
+      rawText = textBlock.text;
+    } else {
+      let openaiResp: unknown;
+      try {
+        openaiResp = await callOpenAIResponses(openaiKey as string, {
+          model: process.env.OPENAI_ANALYZE_MODEL ?? "gpt-5.5",
+          instructions: SYSTEM_PROMPT,
+          input: [
+            {
+              role: "user",
+              content: [
+                { type: "input_text", text: instructionText },
+                { type: "input_image", image_url: imageDataUrl },
+              ],
+            },
+          ],
+        });
+      } catch (e) {
+        return openAiErrorResponse("analyze", 502, e);
+      }
+
+      const response = openaiResp as {
+        usage?: unknown;
+        output_text?: string;
+        output?: { type?: string; content?: { type?: string; text?: string }[] }[];
+      };
+      usage = response.usage;
+      rawText =
+        response.output_text ??
+        response.output
+          ?.flatMap((item) => item.content ?? [])
+          .find((item) => item.type === "output_text" && typeof item.text === "string")
+          ?.text ??
+        "";
+      if (!rawText) {
+        return jsonError(502, "OpenAI returned no output text");
+      }
     }
 
-    const response = claudeResp as {
-      usage?: { input_tokens?: number; output_tokens?: number };
-      content?: { type: string; text?: string }[];
-    };
-
-    console.log(
-      "[analyze] usage:",
-      JSON.stringify({
-        input_tokens: response.usage?.input_tokens,
-        output_tokens: response.usage?.output_tokens,
-      }),
-    );
-
-    const textBlock = response.content?.find((b) => b.type === "text");
-    if (!textBlock || textBlock.type !== "text" || !textBlock.text) {
-      return jsonError(502, "Claude returned no text block");
-    }
-
-    const rawText = textBlock.text;
+    console.log("[analyze] usage:", JSON.stringify(usage ?? {}));
     console.log("[analyze] rawText length:", rawText.length);
     console.log("[analyze] rawText preview:", rawText.slice(0, 300));
 

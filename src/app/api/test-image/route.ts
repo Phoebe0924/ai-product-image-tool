@@ -1,22 +1,22 @@
 export const runtime = "nodejs";
-export const maxDuration = 90;
+export const maxDuration = 120;
 
 const DEFAULT_TEST_PROMPT =
   "一张粉色防晒霜拼多多官方店铺主图，白粉色清爽电商海报风格，突出 SPF50+ PA++++，大字标题，高倍防晒，水润提亮，官方正品感";
 
 export async function POST(req: Request): Promise<Response> {
-  const key = process.env.SHIYUN_API_KEY;
-  const model = process.env.SHIYUN_IMAGE_MODEL ?? "gpt-image-2";
-  const baseUrl = process.env.SHIYUN_BASE_URL ?? "https://shiyunapi.com";
+  const key = process.env.OPENAI_API_KEY;
+  const model = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-2";
+  const baseUrl = process.env.OPENAI_BASE_URL ?? "https://api.openai.com";
   const endpoint = `${baseUrl}/v1/images/edits`;
 
-  console.log("[test-image] provider: shiyun");
+  console.log("[test-image] provider: openai");
   console.log("[test-image] model:", model);
   console.log("[test-image] endpoint:", endpoint);
   console.log("[test-image] key present:", Boolean(key), "length:", key?.length ?? 0);
 
   if (!key) {
-    return Response.json({ error: "SHIYUN_API_KEY not set" }, { status: 500 });
+    return Response.json({ error: "OPENAI_API_KEY not set" }, { status: 500 });
   }
 
   let body: unknown;
@@ -40,7 +40,7 @@ export async function POST(req: Request): Promise<Response> {
   const blob = new Blob([buffer], { type: mime });
 
   const form = new FormData();
-  form.append("image", blob, "product.png");
+  form.append("image[]", blob, "product.png");
   form.append("prompt", prompt);
   form.append("model", model);
   form.append("n", "1");
@@ -76,7 +76,7 @@ export async function POST(req: Request): Promise<Response> {
   if (!res.ok) {
     console.error("[test-image] error response:", JSON.stringify(data));
     return Response.json(
-      { error: `Shiyun HTTP ${res.status}`, detail: data, provider: "shiyun", model, endpoint },
+      { error: `OpenAI HTTP ${res.status}`, detail: data, provider: "openai", model, endpoint },
       { status: 502 },
     );
   }
@@ -87,7 +87,7 @@ export async function POST(req: Request): Promise<Response> {
   if (!imageUrl) {
     console.error("[test-image] no image in response:", JSON.stringify(data));
     return Response.json(
-      { error: "No image in response", raw: data, provider: "shiyun", model, endpoint },
+      { error: "No image in response", raw: data, provider: "openai", model, endpoint },
       { status: 502 },
     );
   }
@@ -99,7 +99,7 @@ export async function POST(req: Request): Promise<Response> {
     success: true,
     imageUrl,
     format,
-    provider: "shiyun",
+    provider: "openai",
     model,
     endpoint,
     prompt,

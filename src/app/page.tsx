@@ -12,6 +12,8 @@ const STEPS: { id: StepId; label: string }[] = [
   { id: "complete", label: "下载使用" },
 ];
 
+const TRIAL_PRICE = "¥1.99";
+
 const CATEGORIES = [
   { id: "beauty", label: "美妆护肤" },
   { id: "food", label: "食品饮品" },
@@ -28,6 +30,13 @@ const PLATFORMS = [
   { id: "xiaohongshu", label: "小红书" },
 ] as const;
 type PlatformId = typeof PLATFORMS[number]["id"];
+
+const OUTPUT_USES = [
+  { id: "selling-point", label: "讲清卖点", desc: "适合轮播/详情页，让用户知道为什么买" },
+  { id: "traffic", label: "提升点击", desc: "适合搜索/推荐/车图，第一眼要抓人" },
+  { id: "scene", label: "增强信任", desc: "适合场景/质感图，让商品看起来可信" },
+] as const;
+type OutputUseId = typeof OUTPUT_USES[number]["id"];
 
 const OUTPUT_MODES = [
   { id: "visual", label: "纯视觉图" },
@@ -243,24 +252,6 @@ function SecondaryButton({
   );
 }
 
-function GreenButton({
-  children,
-  ...rest
-}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
-  return (
-    <button
-      type="button"
-      {...rest}
-      className={
-        "w-full rounded-lg bg-[#111111] px-5 py-2.5 text-sm font-medium text-white transition hover:bg-[#2B2925] disabled:cursor-not-allowed disabled:opacity-50 " +
-        (rest.className ?? "")
-      }
-    >
-      {children}
-    </button>
-  );
-}
-
 export default function Home() {
   const [step, setStep] = useState<StepId>("input");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -269,18 +260,17 @@ export default function Home() {
   const [productDescription, setProductDescription] = useState<string>("");
   const [category, setCategory] = useState<CategoryId>("beauty");
   const [platform, setPlatform] = useState<PlatformId>("pdd");
+  const [outputUse, setOutputUse] = useState<OutputUseId>("selling-point");
   const [outputMode, setOutputMode] = useState<OutputModeId>("copy");
   const [outputLanguage, setOutputLanguage] = useState<OutputLanguageId>("zh");
   const [brief, setBrief] = useState<Brief | null>(null);
   const [results, setResults] = useState<GeneratedItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [mounted, setMounted] = useState(false);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const workbenchRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => { setMounted(true); }, []);
+  const generationNonceRef = useRef(0);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -303,6 +293,7 @@ export default function Home() {
     setProductDescription("");
     setCategory("beauty");
     setPlatform("pdd");
+    setOutputUse("selling-point");
     setOutputMode("copy");
     setOutputLanguage("zh");
     setBrief(null);
@@ -389,11 +380,13 @@ export default function Home() {
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 125_000);
+      generationNonceRef.current += 1;
+      const nonce = generationNonceRef.current;
       try {
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageDataUrl: dataUrl, brief: currentBrief, nonce: Date.now() }),
+          body: JSON.stringify({ imageDataUrl: dataUrl, brief: currentBrief, outputUse, outputMode, platform, nonce }),
           signal: controller.signal,
         });
         clearTimeout(timer);
@@ -435,70 +428,51 @@ export default function Home() {
     setStep("complete");
   }
 
-  async function generateOne(currentBrief: Brief, dataUrl: string) {
-    setResults([{ status: "loading" }]);
-    const MAX_ATTEMPTS = 3;
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      const requestId = `fe-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      const nonce = Date.now();
-      console.log("[generateOne] requestId:", requestId, "| nonce:", nonce, "| attempt:", attempt, "| startedAt:", new Date().toISOString());
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 125_000);
-      try {
-        const res = await fetch("/api/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageDataUrl: dataUrl, brief: currentBrief, nonce }),
-          signal: controller.signal,
+  async function generateSet(currentBrief: Brief, dataUrl: string, count = 4) {
+    setResults(Array.from({ length: count }, () => ({ status: "loading" as const })));
+
+    await Promise.all(
+      Array.from({ length: count }, async (_, index) => {
+        if (index > 0) {
+          await new Promise((resolve) => setTimeout(resolve, index * 500));
+        }
+        const item = await generateSingle(currentBrief, dataUrl);
+        setResults((previous) => {
+          const next = [...previous];
+          next[index] = item;
+          return next;
         });
-        let data: { imageUrl?: string; error?: string } = {};
-        try {
-          data = await res.json();
-        } catch {
-          throw new Error(`服务器返回异常 (HTTP ${res.status})`);
-        }
-        console.log("[generateOne] requestId:", requestId, "| status:", res.status, "| imageUrl length:", data.imageUrl?.length ?? 0, "| imageUrl prefix:", data.imageUrl?.slice(0, 40) ?? "(none)");
-        if (res.status === 429 && attempt < MAX_ATTEMPTS - 1) {
-          clearTimeout(timer);
-          await new Promise((r) => setTimeout(r, 6_000 * (attempt + 1)));
-          continue;
-        }
-        if (!res.ok) throw new Error(data.error || `生成失败 (HTTP ${res.status})`);
-        if (!data.imageUrl) throw new Error("生成失败:未返回图片地址");
-        setResults([{ status: "done", imageUrl: data.imageUrl }]);
-        clearTimeout(timer);
-        return;
-      } catch (e) {
-        clearTimeout(timer);
-        const is429 = e instanceof Error && e.message.includes("429");
-        if (is429 && attempt < MAX_ATTEMPTS - 1) {
-          await new Promise((r) => setTimeout(r, 6_000 * (attempt + 1)));
-          continue;
-        }
-        const msg =
-          e instanceof DOMException && e.name === "AbortError"
-            ? "生成超时,请重试"
-            : e instanceof Error
-              ? e.message
-              : "生成失败";
-        setResults([{ status: "error", error: msg }]);
-        return;
-      }
-    }
+      }),
+    );
+  }
+
+  async function regenerateAt(index: number) {
+    if (!brief || !imageDataUrl) return;
+    setResults((previous) => {
+      const next = [...previous];
+      next[index] = { status: "loading" };
+      return next;
+    });
+    const item = await generateSingle(brief, imageDataUrl);
+    setResults((previous) => {
+      const next = [...previous];
+      next[index] = item;
+      return next;
+    });
   }
 
   async function startGenerate() {
     if (!brief || !imageDataUrl) return;
     setError(null);
     setStep("generating");
-    await generateOne(brief, imageDataUrl);
+    await generateSet(brief, imageDataUrl);
     setStep("complete");
   }
 
   async function regenerateAll() {
     if (!brief || !imageDataUrl) return;
     setStep("generating");
-    await generateOne(brief, imageDataUrl);
+    await generateSet(brief, imageDataUrl);
     setStep("complete");
   }
 
@@ -542,9 +516,14 @@ export default function Home() {
           {/* Upload */}
           <Card>
             <div className="flex flex-col gap-3">
-              <div>
-                <h2 className="text-sm font-semibold text-[#111111]">上传商品图</h2>
-                <p className="mt-0.5 text-xs text-[#A09890]">支持 JPG · PNG · WEBP，建议白底或简单背景</p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-[#111111]">上传商品图</h2>
+                  <p className="mt-0.5 text-xs text-[#A09890]">支持 JPG · PNG · WEBP，建议白底或简单背景</p>
+                </div>
+                <span className="shrink-0 rounded-full bg-[#111111] px-2.5 py-1 text-[11px] font-semibold text-white">
+                  {TRIAL_PRICE} 试用
+                </span>
               </div>
               <div onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
                 <button
@@ -571,6 +550,9 @@ export default function Home() {
                   <SecondaryButton onClick={reset}>移除</SecondaryButton>
                 </div>
               )}
+              <p className="rounded-lg bg-[#F1EDE5] px-3 py-2 text-[11px] leading-relaxed text-[#7A756B]">
+                试用价 {TRIAL_PRICE}：生成 1 组 4 张电商运营图，适合先测试车图、卖点图和场景图方向。
+              </p>
             </div>
           </Card>
 
@@ -613,6 +595,36 @@ export default function Home() {
               {platform !== "pdd" && (
                 <p className="text-[10px] text-[#A09890]">当前版本以拼多多规格生成，其他平台适配即将上线</p>
               )}
+            </div>
+          </Card>
+
+          {/* Output use */}
+          <Card>
+            <div className="flex flex-col gap-2.5">
+              <div>
+                <h3 className="text-xs font-semibold text-[#2B2925]">业务目标</h3>
+                <p className="mt-0.5 text-[10px] text-[#A09890]">先选这张图要帮你解决什么问题</p>
+              </div>
+              <div className="grid grid-cols-1 gap-1.5">
+                {OUTPUT_USES.map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => setOutputUse(u.id)}
+                    className={
+                      "rounded-lg border px-3 py-2 text-left transition " +
+                      (outputUse === u.id
+                        ? "border-[#111111] bg-[#111111] text-white"
+                        : "border-[#DED6C9] bg-[#F1EDE5] text-[#6F6A60] hover:border-[#2B2925] hover:text-[#2B2925]")
+                    }
+                  >
+                    <span className="block text-xs font-medium">{u.label}</span>
+                    <span className={outputUse === u.id ? "mt-0.5 block text-[10px] text-white/70" : "mt-0.5 block text-[10px] text-[#A09890]"}>
+                      {u.desc}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           </Card>
 
@@ -691,7 +703,7 @@ export default function Home() {
             </div>
           )}
 
-          <PrimaryButton onClick={startAnalyze} disabled={mounted && !originalFile}>
+          <PrimaryButton onClick={startAnalyze} disabled={!originalFile}>
             开始分析
           </PrimaryButton>
         </div>
@@ -742,6 +754,12 @@ export default function Home() {
                   <div className="flex gap-2">
                     <span className="shrink-0 text-[#A09890]">主标题</span>
                     <span className="font-medium text-[#111111]">{brief.main_title}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="shrink-0 text-[#A09890]">业务目标</span>
+                    <span className="text-[#2B2925]">
+                      {OUTPUT_USES.find((u) => u.id === outputUse)?.label ?? "讲清卖点"}
+                    </span>
                   </div>
                   <div className="flex flex-col gap-0.5">
                     <span className="text-[#A09890]">核心卖点</span>
@@ -809,8 +827,8 @@ export default function Home() {
               {[
                 { icon: "🔍", title: "识别商品品类与外观特征", desc: "自动判断产品类型、颜色、包装形态" },
                 { icon: "✨", title: "提炼核心卖点与差异化优势", desc: "从视觉信息中提取 3 个可用于文案的卖点" },
-                { icon: "🎨", title: "规划 4 张图片的用途与构图", desc: "主视觉图 · 痛点图 · 场景图 · 卖点图" },
-                { icon: "📝", title: "生成每张图的独立文案", desc: "主标题 · 副标题 · 卖点短句，可编辑" },
+                { icon: "🎯", title: "按业务目标生成图片", desc: "提升点击 · 讲清卖点 · 增强信任，不同目标不同结构" },
+                { icon: "📝", title: "生成可复核的运营文案", desc: "主标题 · 副标题 · 卖点短句，便于人工调整" },
               ].map(({ icon, title, desc }) => (
                 <div key={title} className="flex gap-3 rounded-lg bg-[#F8F5EE] px-3 py-2.5 shadow-sm">
                   <span className="mt-0.5 text-base leading-none">{icon}</span>
@@ -827,7 +845,7 @@ export default function Home() {
           <div className="rounded-xl border border-dashed border-[#D8D0C3] bg-[#EDE8DF] p-5">
             <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[#A09890]">生成结果预览区</p>
             <div className="aspect-square w-full rounded-lg border border-[#D8D0C3] bg-[#F8F5EE] shadow-sm" />
-            <p className="mt-3 text-center text-xs text-[#A09890]">上传商品图后，AI 将自动生成主图</p>
+            <p className="mt-3 text-center text-xs text-[#A09890]">上传商品图后，AI 将自动生成运营图</p>
           </div>
         </div>
       );
@@ -882,6 +900,15 @@ export default function Home() {
 
               <CardSection title="主标题方向">
                 <p className="rounded-lg bg-[#F1EDE5] px-3 py-2 font-medium">{brief.main_title}</p>
+              </CardSection>
+
+              <CardSection title="业务目标">
+                <p className="rounded-lg bg-[#F1EDE5] px-3 py-2 font-medium">
+                  {OUTPUT_USES.find((u) => u.id === outputUse)?.label ?? "讲清卖点"}
+                  <span className="ml-2 font-normal text-[#7A756B]">
+                    {OUTPUT_USES.find((u) => u.id === outputUse)?.desc}
+                  </span>
+                </p>
               </CardSection>
 
               <CardSection title="视觉风格">
@@ -952,7 +979,7 @@ export default function Home() {
               <div key={idx} className="overflow-hidden rounded-xl border border-[#E5DED2] bg-[#FFFCF6] shadow-sm">
                 <div className="flex items-center justify-between border-b border-[#EDE7DC] px-3 py-2">
                   <span className="text-xs font-medium text-[#111111]">
-                    {isBatch ? `第 ${idx + 1} 张` : "主图"}
+                    {isBatch ? `第 ${idx + 1} 张` : OUTPUT_USES.find((u) => u.id === outputUse)?.label ?? "运营图"}
                   </span>
                   <div className="flex items-center gap-1.5">
                     {r.status === "done" && (
@@ -1005,7 +1032,7 @@ export default function Home() {
                     )}
                     {r.status === "error" && (
                       <button type="button"
-                        onClick={() => { if (brief && imageDataUrl) generateOne(brief, imageDataUrl); }}
+                        onClick={() => regenerateAt(idx)}
                         className="rounded-lg border border-[#DED6C9] bg-[#F1EDE5] px-2.5 py-1.5 text-xs font-medium text-[#2B2925] transition hover:bg-[#EAE4DA]">
                         重试
                       </button>
@@ -1022,6 +1049,12 @@ export default function Home() {
                 className="flex-1 rounded-lg border border-[#DED6C9] bg-[#F1EDE5] px-5 py-2.5 text-sm font-medium text-[#2B2925] transition hover:bg-[#EAE4DA]">
                 重新生成
               </button>
+              {isBatch && results.some((item) => item.status === "done") && (
+                <button type="button" onClick={downloadAll}
+                  className="flex-1 rounded-lg bg-[#111111] px-5 py-2.5 text-sm font-medium text-white transition hover:bg-[#2B2925]">
+                  下载全部
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1089,7 +1122,7 @@ export default function Home() {
                   disabled={!brief || !imageDataUrl || r.status === "loading"}
                   onClick={() => {
                     if (!brief || !imageDataUrl) return;
-                    generateOne(brief, imageDataUrl);
+                    regenerateAt(lightboxIdx);
                   }}
                   className="flex-1 rounded-lg border border-[#DED6C9] bg-[#F1EDE5] px-4 py-2.5 text-sm font-medium text-[#2B2925] transition hover:bg-[#EAE4DA] disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -1134,22 +1167,28 @@ export default function Home() {
         <div className="rounded-xl border border-[#E5DED2] bg-[#FFFCF6] px-6 py-6 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-10">
             <div className="flex flex-col gap-3 lg:max-w-xl">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-[#111111] px-3 py-1 text-xs font-semibold text-white">
+                  {TRIAL_PRICE} 试用 1 组图
+                </span>
+                <span className="text-xs text-[#A09890]">先验证运营效果，再决定是否批量使用</span>
+              </div>
               <h2 className="text-xl font-semibold leading-snug text-[#111111]">
                 上传一张商品图，生成一套电商视觉方案
               </h2>
               <p className="text-sm text-[#6B6660] leading-relaxed">
-                AI 自动分析商品特征、提炼卖点、规划主视觉图、场景图和卖点图，帮助小团队快速获得可复核的商品图初稿。
+                AI 自动分析商品特征、提炼卖点，按提升点击、讲清卖点、增强信任生成 4 张可下载商品图，帮助小团队快速获得可复核的运营图初稿。
               </p>
               <p className="text-xs text-[#A09890]">
-                传统商品图制作成本高、沟通慢、反复改；LightPic 先帮助你快速生成可复核的视觉初稿。
+                传统商品图制作成本高、沟通慢、反复改；LightPic 先用低价试用帮你判断这组图是否值得继续优化。
               </p>
-              <div className="flex gap-2 pt-1">
+              <div className="flex flex-wrap gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => workbenchRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
                   className="rounded-lg bg-[#111111] px-5 py-2.5 text-sm font-medium text-white transition hover:bg-[#2B2925]"
                 >
-                  开始生成
+                  {TRIAL_PRICE} 开始试用
                 </button>
                 {/* 查看示例：前端占位，暂无真实示例区，点击滚动到工作台 */}
                 <button

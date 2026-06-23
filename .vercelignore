@@ -1,0 +1,9 @@
+.next
+.open-next
+.wrangler
+node_modules
+eval-runs
+eval-inputs/*
+!eval-inputs/README.md
+*.tsbuildinfo
+.DS_Store
