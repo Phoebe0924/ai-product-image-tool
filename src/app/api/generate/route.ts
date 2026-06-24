@@ -3,6 +3,13 @@ import {
   openAiErrorResponse,
   proxyToStableApi,
 } from "@/lib/server/api-proxy";
+import {
+  applyCloudflareRateLimit,
+  applyTrustedProxyRateLimit,
+  rejectOversizedImageData,
+  rejectOversizedRequest,
+  requireTrustedProxy,
+} from "@/lib/server/api-guard";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -254,8 +261,20 @@ function buildMainImagePrompt(
 export async function POST(req: Request): Promise<Response> {
   const t0 = Date.now();
   try {
+    const oversizedRequest = rejectOversizedRequest(req);
+    if (oversizedRequest) return oversizedRequest;
+
+    const rateLimited = await applyCloudflareRateLimit(req, "GENERATE_RATE_LIMIT");
+    if (rateLimited) return rateLimited;
+
     const proxied = await proxyToStableApi(req, "/api/generate");
     if (proxied) return proxied;
+
+    const accessError = requireTrustedProxy(req);
+    if (accessError) return accessError;
+
+    const trustedProxyRateLimited = applyTrustedProxyRateLimit(req, "generate", 8);
+    if (trustedProxyRateLimited) return trustedProxyRateLimited;
 
     // Dev mode: skip external image APIs entirely, return a placeholder image.
     if (process.env.LIGHTPIC_DEV_MODE === "1") {
@@ -304,6 +323,8 @@ export async function POST(req: Request): Promise<Response> {
     if (typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
       return jsonError(400, "Missing or invalid image");
     }
+    const oversizedImage = rejectOversizedImageData(imageDataUrl);
+    if (oversizedImage) return oversizedImage;
 
     // brief takes priority; rawPrompt is the fallback for direct callers
     const basePrompt =

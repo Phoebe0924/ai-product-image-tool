@@ -13,23 +13,34 @@ export async function proxyToStableApi(
 
   const target = `${origin.replace(/\/$/, "")}${pathname}`;
   const contentType = req.headers.get("content-type");
+  const proxySecret = process.env.LIGHTPIC_PROXY_SECRET?.trim();
+  const clientKey =
+    req.headers.get("cf-connecting-ip") ??
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    "unknown";
+  const headers = new Headers();
+  if (contentType) headers.set("Content-Type", contentType);
+  if (proxySecret) headers.set("X-LightPic-Proxy-Secret", proxySecret);
+  headers.set("X-LightPic-Client-Key", clientKey);
 
   try {
     const upstream = await fetch(target, {
       method: req.method,
-      headers: contentType ? { "Content-Type": contentType } : undefined,
+      headers,
       body: await req.arrayBuffer(),
     });
-    const headers = new Headers();
-    headers.set(
+    const responseHeaders = new Headers();
+    responseHeaders.set(
       "Content-Type",
       upstream.headers.get("content-type") ?? JSON_HEADERS["Content-Type"],
     );
-    headers.set("Cache-Control", "no-store");
+    responseHeaders.set("Cache-Control", "no-store");
+    const retryAfter = upstream.headers.get("retry-after");
+    if (retryAfter) responseHeaders.set("Retry-After", retryAfter);
 
     return new Response(upstream.body, {
       status: upstream.status,
-      headers,
+      headers: responseHeaders,
     });
   } catch (error) {
     console.error(`[api-proxy] ${pathname} failed:`, error);

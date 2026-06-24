@@ -2,6 +2,13 @@ import {
   openAiErrorResponse,
   proxyToStableApi,
 } from "@/lib/server/api-proxy";
+import {
+  applyCloudflareRateLimit,
+  applyTrustedProxyRateLimit,
+  rejectOversizedImageData,
+  rejectOversizedRequest,
+  requireTrustedProxy,
+} from "@/lib/server/api-guard";
 
 async function callClaudeMessages(
   endpoint: string,
@@ -312,8 +319,20 @@ function extractJson(raw: string): unknown {
 export async function POST(req: Request): Promise<Response> {
   const t0 = Date.now();
   try {
+    const oversizedRequest = rejectOversizedRequest(req);
+    if (oversizedRequest) return oversizedRequest;
+
+    const rateLimited = await applyCloudflareRateLimit(req, "ANALYZE_RATE_LIMIT");
+    if (rateLimited) return rateLimited;
+
     const proxied = await proxyToStableApi(req, "/api/analyze");
     if (proxied) return proxied;
+
+    const accessError = requireTrustedProxy(req);
+    if (accessError) return accessError;
+
+    const trustedProxyRateLimited = applyTrustedProxyRateLimit(req, "analyze", 5);
+    if (trustedProxyRateLimited) return trustedProxyRateLimited;
 
     const analyzeProvider = process.env.ANALYZE_PROVIDER ?? "openai";
     const openaiKey = process.env.OPENAI_API_KEY;
@@ -342,6 +361,8 @@ export async function POST(req: Request): Promise<Response> {
     if (typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
       return jsonError(400, "Missing or invalid image");
     }
+    const oversizedImage = rejectOversizedImageData(imageDataUrl);
+    if (oversizedImage) return oversizedImage;
 
     const m = imageDataUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
     if (!m) return jsonError(400, "Could not parse image data URL");

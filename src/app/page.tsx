@@ -44,6 +44,9 @@ const OUTPUT_MODES = [
 ] as const;
 type OutputModeId = typeof OUTPUT_MODES[number]["id"];
 
+const GENERATION_COUNTS = [1, 2, 4] as const;
+type GenerationCount = typeof GENERATION_COUNTS[number];
+
 const OUTPUT_LANGUAGES = [
   { id: "zh", label: "中文" },
   { id: "en", label: "English" },
@@ -58,7 +61,7 @@ const PLATFORM_SPEC = {
   rules: [
     "白底主图: 750×750 px,纯白底,产品居中,不可加文字水印",
     "场景图/详情图: 800×800 px 或 750×1000 px",
-    "支持格式: JPG / PNG,单图 ≤ 1MB",
+    "支持格式: JPG / PNG / WEBP,单图 ≤ 2MB",
   ],
 };
 
@@ -76,6 +79,8 @@ type GeneratedItem = {
   imageUrl?: string;
   error?: string;
 };
+
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -262,6 +267,7 @@ export default function Home() {
   const [platform, setPlatform] = useState<PlatformId>("pdd");
   const [outputUse, setOutputUse] = useState<OutputUseId>("selling-point");
   const [outputMode, setOutputMode] = useState<OutputModeId>("copy");
+  const [generationCount, setGenerationCount] = useState<GenerationCount>(1);
   const [outputLanguage, setOutputLanguage] = useState<OutputLanguageId>("zh");
   const [brief, setBrief] = useState<Brief | null>(null);
   const [results, setResults] = useState<GeneratedItem[]>([]);
@@ -295,6 +301,7 @@ export default function Home() {
     setPlatform("pdd");
     setOutputUse("selling-point");
     setOutputMode("copy");
+    setGenerationCount(1);
     setOutputLanguage("zh");
     setBrief(null);
     setError(null);
@@ -310,6 +317,11 @@ export default function Home() {
     }
     if (!file.type.startsWith("image/")) {
       setError(`不支持的文件类型: ${file.type || "未知"}`);
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setError("图片过大，请上传 2MB 以内的 JPG、PNG 或 WEBP");
       if (inputRef.current) inputRef.current.value = "";
       return;
     }
@@ -342,7 +354,7 @@ export default function Home() {
           body: JSON.stringify({ imageDataUrl: dataUrl, productDescription: productDescription.trim() || undefined }),
           signal: controller.signal,
         });
-        let data: { brief?: Brief; unsupported?: boolean; reason?: string; error?: string } = {};
+        let data: { brief?: Brief; unsupported?: boolean; reason?: string; error?: string; code?: string } = {};
         try {
           data = await res.json();
         } catch {
@@ -390,9 +402,9 @@ export default function Home() {
           signal: controller.signal,
         });
         clearTimeout(timer);
-        let data: { imageUrl?: string; error?: string } = {};
+        let data: { imageUrl?: string; error?: string; code?: string } = {};
         try { data = await res.json(); } catch { /* ignore */ }
-        if (res.status === 429 && attempt < MAX_ATTEMPTS - 1) {
+        if (res.status === 429 && data.code !== "trial_rate_limit" && attempt < MAX_ATTEMPTS - 1) {
           await new Promise((r) => setTimeout(r, 6_000 * (attempt + 1)));
           continue;
         }
@@ -428,7 +440,7 @@ export default function Home() {
     setStep("complete");
   }
 
-  async function generateSet(currentBrief: Brief, dataUrl: string, count = 4) {
+  async function generateSet(currentBrief: Brief, dataUrl: string, count: GenerationCount) {
     setResults(Array.from({ length: count }, () => ({ status: "loading" as const })));
 
     await Promise.all(
@@ -465,14 +477,14 @@ export default function Home() {
     if (!brief || !imageDataUrl) return;
     setError(null);
     setStep("generating");
-    await generateSet(brief, imageDataUrl);
+    await generateSet(brief, imageDataUrl, generationCount);
     setStep("complete");
   }
 
   async function regenerateAll() {
     if (!brief || !imageDataUrl) return;
     setStep("generating");
-    await generateSet(brief, imageDataUrl);
+    await generateSet(brief, imageDataUrl, generationCount);
     setStep("complete");
   }
 
@@ -519,7 +531,7 @@ export default function Home() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-sm font-semibold text-[#111111]">上传商品图</h2>
-                  <p className="mt-0.5 text-xs text-[#A09890]">支持 JPG · PNG · WEBP，建议白底或简单背景</p>
+                  <p className="mt-0.5 text-xs text-[#A09890]">支持 JPG · PNG · WEBP，单图不超过 2MB</p>
                 </div>
                 <span className="shrink-0 rounded-full bg-[#111111] px-2.5 py-1 text-[11px] font-semibold text-white">
                   {TRIAL_PRICE} 试用
@@ -551,7 +563,7 @@ export default function Home() {
                 </div>
               )}
               <p className="rounded-lg bg-[#F1EDE5] px-3 py-2 text-[11px] leading-relaxed text-[#7A756B]">
-                试用价 {TRIAL_PRICE}：生成 1 组 4 张电商运营图，适合先测试车图、卖点图和场景图方向。
+                试用价 {TRIAL_PRICE}：可按需选择生成 1、2 或 4 张，先用少量结果验证方向。
               </p>
             </div>
           </Card>
@@ -622,6 +634,33 @@ export default function Home() {
                     <span className={outputUse === u.id ? "mt-0.5 block text-[10px] text-white/70" : "mt-0.5 block text-[10px] text-[#A09890]"}>
                       {u.desc}
                     </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </Card>
+
+          {/* Generation count */}
+          <Card>
+            <div className="flex flex-col gap-2.5">
+              <div>
+                <h3 className="text-xs font-semibold text-[#2B2925]">生成张数</h3>
+                <p className="mt-0.5 text-[10px] text-[#A09890]">默认先生成 1 张，确认方向后再扩展</p>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {GENERATION_COUNTS.map((count) => (
+                  <button
+                    key={count}
+                    type="button"
+                    onClick={() => setGenerationCount(count)}
+                    className={
+                      "rounded-lg border py-2 text-xs font-medium transition " +
+                      (generationCount === count
+                        ? "border-[#111111] bg-[#111111] text-white"
+                        : "border-[#DED6C9] bg-[#F1EDE5] text-[#6F6A60] hover:border-[#2B2925]")
+                    }
+                  >
+                    {count} 张
                   </button>
                 ))}
               </div>
@@ -860,8 +899,8 @@ export default function Home() {
               {[
                 "识别产品品类与外观特征",
                 "提取核心卖点与差异化优势",
-                "规划 4 张场景图方案",
-                "生成每张图独立文案",
+                "提炼适合当前任务的视觉方向",
+                `准备 ${generationCount} 张图的生成方案`,
               ].map((label, i) => (
                 <div key={i} className="flex items-center gap-2.5">
                   <div className="skeleton h-2 w-2 shrink-0 rounded-full" />
@@ -1169,7 +1208,7 @@ export default function Home() {
             <div className="flex flex-col gap-3 lg:max-w-xl">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full bg-[#111111] px-3 py-1 text-xs font-semibold text-white">
-                  {TRIAL_PRICE} 试用 1 组图
+                  {TRIAL_PRICE} 试用
                 </span>
                 <span className="text-xs text-[#A09890]">先验证运营效果，再决定是否批量使用</span>
               </div>
@@ -1177,7 +1216,7 @@ export default function Home() {
                 上传一张商品图，生成一套电商视觉方案
               </h2>
               <p className="text-sm text-[#6B6660] leading-relaxed">
-                AI 自动分析商品特征、提炼卖点，按提升点击、讲清卖点、增强信任生成 4 张可下载商品图，帮助小团队快速获得可复核的运营图初稿。
+                AI 自动分析商品特征、提炼卖点，按提升点击、讲清卖点、增强信任生成 1、2 或 4 张可下载商品图。
               </p>
               <p className="text-xs text-[#A09890]">
                 传统商品图制作成本高、沟通慢、反复改；LightPic 先用低价试用帮你判断这组图是否值得继续优化。

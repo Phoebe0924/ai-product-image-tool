@@ -12,11 +12,11 @@
 - **线上 URL**:https://ai-product-image-tool.penghui0809.workers.dev
 - **国内入口**:https://app.zdatalink.cn
 - **Vercel**:https://lightpic-mvp.vercel.app
-- **当前流程**(5 步,4 张运营图):
+- **当前流程**(5 步,按需生成):
   1. 上传图(JPG/PNG/WEBP,HEIC 拒收)
   2. OpenAI 视觉分析(产品识别 + 3 个卖点 + 视觉风格)
   3. 用户确认 brief 并选择业务目标
-  4. 生成 4 张电商运营图
+  4. 用户选择生成 1 / 2 / 4 张电商运营图
   5. 单张/批量下载
 
 ## 目标 SOP(下一步要演进到)

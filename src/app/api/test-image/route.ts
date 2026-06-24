@@ -5,6 +5,10 @@ const DEFAULT_TEST_PROMPT =
   "一张粉色防晒霜拼多多官方店铺主图，白粉色清爽电商海报风格，突出 SPF50+ PA++++，大字标题，高倍防晒，水润提亮，官方正品感";
 
 export async function POST(req: Request): Promise<Response> {
+  if (process.env.LIGHTPIC_ENABLE_TEST_IMAGE !== "1") {
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
+
   const key = process.env.OPENAI_API_KEY;
   const model = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-2";
   const baseUrl = process.env.OPENAI_BASE_URL ?? "https://api.openai.com";

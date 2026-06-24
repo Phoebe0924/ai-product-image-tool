@@ -577,3 +577,98 @@ Version ID: e64a817a-e81b-43b7-a67a-581e32c30f7d
 - `.gitignore` 排除 `eval-runs/` 和真实评测商品图,保留 `eval-inputs/README.md`。
 - 真实 API Key 继续只存在于本地和部署平台 Secret。
 - GitHub 仓库保持 Private,本次只建立下一轮迭代基线,不直接公开源码。
+
+---
+
+# 2026-06-23 公开试用保护
+
+## 目标
+
+在继续增加产品功能前,先让 LightPic 可以更安全地给外部用户试用,避免公开入口被脚本直接刷掉 OpenAI 余额。
+
+## 实现
+
+- Cloudflare 原生 Rate Limit binding:
+  - Analyze:同一访客每分钟 5 次
+  - Generate:同一访客每分钟 8 次
+- 一组图使用 4 次 Generate,因此正常用户可以连续生成两组,第三组需要等待。
+- 超限返回 `429`、中文提示和 `Retry-After: 60`。
+- 新增 `LIGHTPIC_PROXY_SECRET`:
+  - Cloudflare 转发 API 时附带私有请求头
+  - Vercel 配置密钥后拒绝未携带正确请求头的直接 API 调用
+- 前端和 API 都限制输入图片最大 2MB。
+- `/api/test-image` 只有显式设置 `LIGHTPIC_ENABLE_TEST_IMAGE=1` 才能调用,生产默认返回 404。
+
+## 边界
+
+当前保护适合匿名 MVP 试用,不是正式计费系统。后续收费版本仍需要用户身份、持久化额度、订单与成本记录。
+
+## 产品修正:生成张数按需选择
+
+固定生成 4 张会增加等待时间和 API 成本,也容易让用户在尚未验证方向时一次得到过多相似结果。
+
+调整为:
+
+- 可选 1 / 2 / 4 张
+- 默认 1 张
+- 先验证一个运营任务和视觉方向
+- 用户需要更多备选时再生成 2 或 4 张
+- 多张生成继续使用错开 500ms 的并发方案
+
+---
+
+# 2026-06-24 公开入口部署验证与限流兜底
+
+## 背景
+
+公开试用入口准备给外部用户看,需要先控制两件事:
+
+- 不让用户绕过 Cloudflare 直接打 Vercel API
+- 不让匿名试用请求快速消耗 OpenAI 额度
+
+同时根据产品判断,生成数量不应固定为 4 张。默认先生成 1 张,需要更多备选时再选 2 或 4 张。
+
+## 本次实现
+
+- 前端新增生成张数选择:1 / 2 / 4,默认 1
+- Cloudflare 代理到 Vercel 时附带 `X-LightPic-Proxy-Secret`
+- Vercel API 校验 `LIGHTPIC_PROXY_SECRET`,拒绝未携带正确代理头的直连请求
+- Cloudflare 代理请求附带 `X-LightPic-Client-Key`,用于 Vercel 侧兜底限流
+- Vercel 后端兜底限流:
+  - Analyze:同一客户端每分钟 5 次
+  - Generate:同一客户端每分钟 8 次
+- 前端和 API 统一限制上传图片不超过 2MB
+- `/api/test-image` 生产默认关闭,仅 `LIGHTPIC_ENABLE_TEST_IMAGE=1` 时可用
+
+## 部署
+
+Cloudflare:
+
+```text
+https://ai-product-image-tool.penghui0809.workers.dev
+https://app.zdatalink.cn
+Version ID: 22326a2f-8e52-40ea-85d0-efe02f1f1da7
+```
+
+Vercel:
+
+```text
+https://lightpic-mvp.vercel.app
+Deployment: https://lightpic-czm5haj2l-penghui0809-9334s-projects.vercel.app
+Deployment ID: dpl_7iZ4swAFssoz86HCBunm4Hr9vCKc
+```
+
+## 验证
+
+- `npm run build`:通过
+- `npx opennextjs-cloudflare build`:通过
+- Vercel 直连 `/api/analyze` 空请求:403,返回 `direct_api_forbidden`
+- Cloudflare `/api/analyze` 空请求:400,返回 `Missing or invalid image`,说明代理链路可用
+- Cloudflare 连续 6 次 `/api/analyze` 空请求:前 5 次 400,第 6 次 429,返回 `trial_rate_limit`
+- 线上页面文案包含:生成 1、2 或 4 张 / 生成张数 / 默认先生成 1 张
+
+## 注意
+
+Cloudflare 原生 Rate Limit binding 已配置并随 Worker 部署,但 2026-06-24 用空请求连续压测时未触发 429。当前不能把它视为已验证保护。
+
+已补 Vercel 后端兜底限流,这是本次线上已验证的成本保护。该限流基于匿名客户端标识和进程内短窗口,适合 MVP 公开试用,但不是正式计费系统。正式收费版本仍需要用户身份、持久化额度、订单和成本记录。

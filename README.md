@@ -13,9 +13,10 @@ LightPic 是一个面向中小电商卖家的 AI 运营图工作台。用户上�
 1. 上传 JPG、PNG 或 WEBP 商品图
 2. 使用 OpenAI Responses API 分析商品与卖点
 3. 用户确认商品 Brief 和业务目标
-4. 并发生成 4 张运营图，每次请求错开 500ms
+4. 按需生成 1、2 或 4 张运营图，多张请求错开 500ms
 5. 单张预览、重试和下载
 6. 开发测试模式下返回占位图，不消耗图片 API
+7. 公开入口按访客限流，并限制上传图片不超过 2MB
 
 ## 技术栈
 
@@ -65,11 +66,11 @@ node scripts/eval-main-image.mjs
 
 Cloudflare Workers 承载公开入口。为避免边缘节点出站区域导致 OpenAI 地区限制，AI API 可通过 `LIGHTPIC_API_ORIGIN` 转发到固定在 `iad1` 的 Vercel Functions。
 
-部署密钥只配置在 `.env.local`、Cloudflare Secret 或 Vercel Environment Variables 中，不写入仓库。
+Cloudflare 使用原生 Rate Limit binding 做边缘保护，并通过 `LIGHTPIC_PROXY_SECRET` 与 Vercel 建立私有代理链路；Vercel 侧另有按代理客户端标识计算的 60 秒兜底限流。部署密钥只配置在 `.env.local`、Cloudflare Secret 或 Vercel Environment Variables 中，不写入仓库。
 
 ## 当前边界
 
 - 生成结果必须人工复核商品结构、包装文字、品牌标识和功效文案。
 - `¥1.99` 当前是产品验证文案，尚未接入正式支付。
-- 公开推广前仍需增加鉴权、限流和用量控制，避免 API 余额被滥用。
+- 当前限流是匿名公开试用的基础保护；正式收费前仍需用户鉴权、持久化额度和成本记录。
 - 当前仓库保持 Private，作为下一轮产品迭代基线。
