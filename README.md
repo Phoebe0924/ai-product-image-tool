@@ -1,5 +1,9 @@
 # LightPic
 
+[![CI](https://github.com/Phoebe0924/lightpic/actions/workflows/ci.yml/badge.svg)](https://github.com/Phoebe0924/lightpic/actions/workflows/ci.yml)
+[![GitHub issues](https://img.shields.io/github/issues/Phoebe0924/lightpic)](https://github.com/Phoebe0924/lightpic/issues)
+[![GitHub last commit](https://img.shields.io/github/last-commit/Phoebe0924/lightpic)](https://github.com/Phoebe0924/lightpic/commits/main)
+
 LightPic is an AI product-image workspace for small ecommerce sellers. Upload one product image, let the model extract a usable brief, then generate visual assets based on a sales task instead of a vague style request.
 
 Current focus:

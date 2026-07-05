@@ -1,0 +1,49 @@
+name: Bug report
+description: Report a reproducible problem in LightPic
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve LightPic. Please include enough detail for maintainers to reproduce the issue.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+      placeholder: Describe the problem and where it appears.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the smallest set of steps that triggers the issue.
+      placeholder: |
+        1. Go to ...
+        2. Upload ...
+        3. Click ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened? Include screenshots or logs if useful.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser, device, and whether this is local dev, Vercel, or Cloudflare Workers.
+      placeholder: Chrome 126 on macOS, local dev with LIGHTPIC_DEV_MODE=1
