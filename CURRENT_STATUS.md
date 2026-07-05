@@ -1,6 +1,6 @@
 # LightPic — Current Status
 
-> Last updated: 2026-06-24
+> Last updated: 2026-07-05
 
 ## 当前阶段
 
@@ -146,7 +146,7 @@ npx vercel --prod --scope penghui0809-9334s-projects
 - 增加 `.env.example`
 - `eval-runs/` 和真实评测商品图不进入 Git
 - README 从 Next.js 默认模板改为 LightPic 项目说明
-- GitHub 仓库继续保持 Private,作为下一轮迭代基线
+- GitHub 仓库现已公开为 `Phoebe0924/lightpic`,作为持续维护的公开代码基线
 
 后续修正:生成数量不再固定为 4 张。用户可选 1 / 2 / 4 张,默认 1 张,多张时仍错开 500ms 并发。
 

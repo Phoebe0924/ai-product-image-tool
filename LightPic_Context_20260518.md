@@ -83,7 +83,7 @@
 
 ### 仓库 / 入口
 
-- **Repo**: https://github.com/Phoebe0924/ai-product-image-tool(private)
+- **Repo**: https://github.com/Phoebe0924/lightpic (public)
 - **本地**: `/Users/pengpengsmac/Desktop/Guizhenglu_Lab/picset-mvp/`
 - **生产 Worker**: https://ai-product-image-tool.penghui0809.workers.dev
 - **国内入口**(等 zone Active):https://app.zdatalink.cn
