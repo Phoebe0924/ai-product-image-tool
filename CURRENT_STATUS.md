@@ -1,6 +1,6 @@
 # LightPic — Current Status
 
-> Last updated: 2026-06-23
+> Last updated: 2026-07-05
 
 ## 当前阶段
 
@@ -21,8 +21,8 @@
 1. 用户上传商品白底图或简单背景图
 2. OpenAI 分析商品类型、外观特征、卖点和视觉方向
 3. 用户确认 brief，并选择业务目标
-4. 前端并发触发 4 次 `generateOne`，错开 500ms 启动
-5. `/api/generate` 调用 OpenAI Images Edits / `gpt-image-2` 或测试占位图，返回 4 张商品运营图
+4. 用户选择生成 1、2 或 4 张；多张时前端并发触发 `generateOne`，错开 500ms 启动
+5. `/api/generate` 调用 OpenAI Images Edits / `gpt-image-2` 或测试占位图，按用户选择返回 1、2 或 4 张商品运营图
 6. 用户下载图片，人工复核商品主体、品牌文字和功效文案
 
 ## 当前产品定位
@@ -146,7 +146,22 @@ npx vercel --prod --scope penghui0809-9334s-projects
 - 增加 `.env.example`
 - `eval-runs/` 和真实评测商品图不进入 Git
 - README 从 Next.js 默认模板改为 LightPic 项目说明
-- GitHub 仓库继续保持 Private,作为下一轮迭代基线
+- GitHub 仓库现已公开为 `Phoebe0924/lightpic`,作为持续维护的公开代码基线
+
+后续修正:生成数量不再固定为 4 张。用户可选 1 / 2 / 4 张,默认 1 张,多张时仍错开 500ms 并发。
+
+## 2026-06-24 公开试用保护
+
+- Cloudflare 原生 Rate Limit binding 已配置:分析每分钟 5 次,生成每分钟 8 次
+- Vercel 后端增加并验证代理请求兜底限流:分析每分钟 5 次,生成每分钟 8 次
+- 用户可选 1 / 2 / 4 张;选择 4 张时需要 4 次生成请求
+- 超限返回中文提示和 `Retry-After: 60`
+- Cloudflare 到 Vercel 使用 `LIGHTPIC_PROXY_SECRET`,阻止绕过正式入口直接调用 Vercel API
+- 上传图片前后端统一限制为 2MB
+- `/api/test-image` 默认在生产环境关闭
+- 2026-06-24 线上空请求压测中 Cloudflare 原生 binding 未触发 429;当前以 Vercel 兜底限流作为已验证保护。
+- 最新 Cloudflare Worker Version ID:`22326a2f-8e52-40ea-85d0-efe02f1f1da7`
+- 最新 Vercel Production Deployment ID:`dpl_7iZ4swAFssoz86HCBunm4Hr9vCKc`
 
 ## 下一步建议
 

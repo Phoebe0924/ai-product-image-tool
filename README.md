@@ -1,32 +1,46 @@
-# LightPic 轻图
+# LightPic
 
-LightPic 是一个面向中小电商卖家的 AI 运营图工作台。用户上传一张商品图，AI 先识别商品并生成 Brief，再按运营目标生成一组可复核的商品图。
+LightPic is an AI product-image workspace for small ecommerce sellers. Upload one product image, let the model extract a usable brief, then generate visual assets based on a sales task instead of a vague style request.
 
-当前主要支持护肤品与美妆商品，核心不是“换一种风格”，而是先定义图片承担的销售任务：
+Current focus:
 
-- 提升点击：适合搜索、推荐和车图
-- 讲清卖点：适合轮播图和详情页
-- 增强信任：适合场景图和质感图
+- `提升点击`: search, recommendation, carousels, ad entry images
+- `讲清卖点`: detail-page support, selling-point explanation
+- `增强信任`: scene, texture, and credibility-oriented visuals
 
-## 当前能力
+## What It Does
 
-1. 上传 JPG、PNG 或 WEBP 商品图
-2. 使用 OpenAI Responses API 分析商品与卖点
-3. 用户确认商品 Brief 和业务目标
-4. 并发生成 4 张运营图，每次请求错开 500ms
-5. 单张预览、重试和下载
-6. 开发测试模式下返回占位图，不消耗图片 API
+1. Accepts a JPG, PNG, or WEBP product image
+2. Uses OpenAI Responses to analyze product type, selling points, and copy direction
+3. Lets the user confirm the brief and business goal
+4. Generates 1, 2, or 4 ecommerce visuals with staggered parallel requests
+5. Supports retry, preview, and download per image
+6. Provides a dev mode with placeholder output so UI work does not burn API budget
+7. Protects the public trial flow with upload limits, proxy validation, and rate limiting
 
-## 技术栈
+## Product Scope
+
+LightPic is not trying to turn one image into arbitrary “AI style art”.
+
+The current product thesis is:
+
+- define the image's sales job first
+- generate a usable ecommerce asset second
+
+Right now the workflow is optimized for beauty and skincare use cases, especially Pinduoduo-style product marketing images.
+
+## Stack
 
 - Next.js 16 App Router
-- React 19、TypeScript、Tailwind CSS v4
+- React 19
+- TypeScript
+- Tailwind CSS v4
 - OpenAI Responses API
 - OpenAI Images Edits API
-- OpenNext + Cloudflare Workers
-- Vercel Functions（固定区域 AI 后端）
+- OpenNext on Cloudflare Workers
+- Vercel Functions for fixed-region AI requests
 
-## 本地运行
+## Local Development
 
 ```bash
 npm install
@@ -34,42 +48,54 @@ cp .env.example .env.local
 npm run dev
 ```
 
-在 `.env.local` 中填写 `OPENAI_API_KEY`。只调试界面时保留：
+Required in `.env.local`:
+
+```env
+OPENAI_API_KEY=...
+```
+
+For UI-only development:
 
 ```env
 LIGHTPIC_DEV_MODE=1
 ```
 
-需要验证真实生成时改为：
+For real model calls:
 
 ```env
 LIGHTPIC_DEV_MODE=0
 ```
 
-## 验证
+## Checks
 
 ```bash
-npx tsc --noEmit
+npm run lint
 npm run build
 ```
 
-批量质量评测：
+Evaluation script:
 
 ```bash
 node scripts/eval-main-image.mjs
 ```
 
-真实评测输入和生成结果不会提交到 Git。
+Real evaluation inputs and generated outputs are intentionally excluded from Git.
 
-## 部署结构
+## Deployment Model
 
-Cloudflare Workers 承载公开入口。为避免边缘节点出站区域导致 OpenAI 地区限制，AI API 可通过 `LIGHTPIC_API_ORIGIN` 转发到固定在 `iad1` 的 Vercel Functions。
+Cloudflare Workers is the public entry. To avoid OpenAI region instability from edge egress, API requests can proxy through `LIGHTPIC_API_ORIGIN` to fixed-region Vercel Functions in `iad1`.
 
-部署密钥只配置在 `.env.local`、Cloudflare Secret 或 Vercel Environment Variables 中，不写入仓库。
+Public trial protection currently includes:
 
-## 当前边界
+- 2MB upload limit
+- Cloudflare-to-Vercel proxy secret via `LIGHTPIC_PROXY_SECRET`
+- Vercel-side fallback rate limiting per proxied client key
+- production-only shutdown of `/api/test-image` unless explicitly enabled
 
-- 生成结果必须人工复核商品结构、包装文字、品牌标识和功效文案。
-- `¥1.99` 当前是产品验证文案，尚未接入正式支付。
-- 公开推广前仍需增加鉴权、限流和用量控制，避免 API 余额被滥用。
-- 当前仓库保持 Private，作为下一轮产品迭代基线。
+Secrets are kept only in `.env.local`, Cloudflare secrets, or Vercel environment variables.
+
+## Current Limits
+
+- Results still require human review for product structure, logo text, packaging text, and claims.
+- `¥1.99` is still a validation offer, not a complete payment system.
+- This is an MVP trial flow, not yet a full quota, billing, and user-account product.

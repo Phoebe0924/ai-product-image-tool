@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useRef } from "react";
 
 const DEFAULT_PROMPT =
@@ -61,10 +62,13 @@ export default function TestImagePage() {
         <div style={{ marginBottom: 8, fontSize: 13, color: "#666" }}>1. 上传商品图</div>
         <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFile} />
         {imageDataUrl && (
-          <img
+          <Image
             src={imageDataUrl}
             alt="uploaded"
-            style={{ display: "block", marginTop: 12, maxHeight: 200, maxWidth: "100%", border: "1px solid #ddd" }}
+            width={320}
+            height={200}
+            unoptimized
+            style={{ display: "block", marginTop: 12, maxHeight: 200, maxWidth: "100%", height: "auto", border: "1px solid #ddd" }}
           />
         )}
       </div>
@@ -137,10 +141,13 @@ export default function TestImagePage() {
           {result.imageUrl && (
             <div>
               <div style={{ fontSize: 13, color: "#666", marginBottom: 8 }}>生成结果</div>
-              <img
+              <Image
                 src={result.imageUrl}
                 alt="generated"
-                style={{ maxWidth: "100%", border: "1px solid #ddd", borderRadius: 4 }}
+                width={1024}
+                height={1024}
+                unoptimized
+                style={{ maxWidth: "100%", height: "auto", border: "1px solid #ddd", borderRadius: 4 }}
               />
               <div style={{ marginTop: 8 }}>
                 <a
