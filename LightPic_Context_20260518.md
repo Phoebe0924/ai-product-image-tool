@@ -84,7 +84,7 @@
 ### 仓库 / 入口
 
 - **Repo**: https://github.com/Phoebe0924/lightpic (public)
-- **本地**: `/Users/pengpengsmac/Desktop/Guizhenglu_Lab/picset-mvp/`
+- **本地**: `lightpic/`
 - **生产 Worker**: https://ai-product-image-tool.penghui0809.workers.dev
 - **国内入口**(等 zone Active):https://app.zdatalink.cn
 - **当前线上 Version**: `ebb93a85-a0d8-4c69-a8e0-4e3a49a9359e`(2026-05-18 部署)
@@ -113,7 +113,7 @@
 
 ```bash
 # 本地起服务
-cd picset-mvp
+cd lightpic
 npm run dev   # http://localhost:3000
 
 # 改完代码先跑 typecheck + lint
@@ -229,7 +229,7 @@ npx wrangler deploy --keep-vars
 ## 附录:关键文件位置(给未来的自己 / 协作者)
 
 ```
-picset-mvp/
+lightpic/
 ├── CLAUDE.md / AGENTS.md         # AI 协作指南,提醒 Next.js 16 是非通常版,改动前先看 node_modules/next/dist/docs/
 ├── wrangler.jsonc                # Worker 配置 + ANTHROPIC_BASE_URL
 ├── open-next.config.ts           # OpenNext 配置
