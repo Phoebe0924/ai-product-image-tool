@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# LightPic 轻图
 
-## Getting Started
+LightPic 是一个面向中小电商卖家的 AI 运营图工作台。用户上传一张商品图，AI 先识别商品并生成 Brief，再按运营目标生成一组可复核的商品图。
 
-First, run the development server:
+当前主要支持护肤品与美妆商品，核心不是“换一种风格”，而是先定义图片承担的销售任务：
+
+- 提升点击：适合搜索、推荐和车图
+- 讲清卖点：适合轮播图和详情页
+- 增强信任：适合场景图和质感图
+
+## 当前能力
+
+1. 上传 JPG、PNG 或 WEBP 商品图
+2. 使用 OpenAI Responses API 分析商品与卖点
+3. 用户确认商品 Brief 和业务目标
+4. 并发生成 4 张运营图，每次请求错开 500ms
+5. 单张预览、重试和下载
+6. 开发测试模式下返回占位图，不消耗图片 API
+
+## 技术栈
+
+- Next.js 16 App Router
+- React 19、TypeScript、Tailwind CSS v4
+- OpenAI Responses API
+- OpenAI Images Edits API
+- OpenNext + Cloudflare Workers
+- Vercel Functions（固定区域 AI 后端）
+
+## 本地运行
 
 ```bash
+npm install
+cp .env.example .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+在 `.env.local` 中填写 `OPENAI_API_KEY`。只调试界面时保留：
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```env
+LIGHTPIC_DEV_MODE=1
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+需要验证真实生成时改为：
 
-## Learn More
+```env
+LIGHTPIC_DEV_MODE=0
+```
 
-To learn more about Next.js, take a look at the following resources:
+## 验证
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npx tsc --noEmit
+npm run build
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+批量质量评测：
 
-## Deploy on Vercel
+```bash
+node scripts/eval-main-image.mjs
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+真实评测输入和生成结果不会提交到 Git。
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 部署结构
+
+Cloudflare Workers 承载公开入口。为避免边缘节点出站区域导致 OpenAI 地区限制，AI API 可通过 `LIGHTPIC_API_ORIGIN` 转发到固定在 `iad1` 的 Vercel Functions。
+
+部署密钥只配置在 `.env.local`、Cloudflare Secret 或 Vercel Environment Variables 中，不写入仓库。
+
+## 当前边界
+
+- 生成结果必须人工复核商品结构、包装文字、品牌标识和功效文案。
+- `¥1.99` 当前是产品验证文案，尚未接入正式支付。
+- 公开推广前仍需增加鉴权、限流和用量控制，避免 API 余额被滥用。
+- 当前仓库保持 Private，作为下一轮产品迭代基线。

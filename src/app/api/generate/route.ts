@@ -1,14 +1,23 @@
+import {
+  isUnsupportedRegionError,
+  openAiErrorResponse,
+  proxyToStableApi,
+} from "@/lib/server/api-proxy";
+
 export const runtime = "nodejs";
 export const maxDuration = 120;
+export const preferredRegion = "iad1";
 
 const REPLICATE_CREATE_URL =
   "https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-max/predictions";
 
+const OPENAI_IMAGE_URL = "https://api.openai.com/v1/images/edits";
 const SHIYUN_IMAGE_URL = "https://shiyunapi.com/v1/images/edits";
 
 const TOTAL_BUDGET_MS = 75_000;
 const POLL_INTERVAL_MS = 2_000;
 const PER_FETCH_TIMEOUT_MS = 12_000;
+const OPENAI_IMAGE_TIMEOUT_MS = 120_000;
 const SHIYUN_TIMEOUT_MS = 115_000; // gpt-image-2 edits can take 90-100s
 const CREATE_RETRIES = 2;
 const POLL_RETRIES = 1;
@@ -110,6 +119,10 @@ type Brief = {
   subtitle?: string;
 };
 
+type OutputUse = "traffic" | "selling-point" | "scene";
+type OutputMode = "visual" | "copy";
+type Platform = "pdd" | "taobao" | "douyin" | "xiaohongshu";
+
 function inferVisualTheme(type: string, visualStyle: string): string {
   const combined = (type + " " + visualStyle).toLowerCase();
 
@@ -132,7 +145,17 @@ function inferVisualTheme(type: string, visualStyle: string): string {
   return "低饱和粉白色调为主视觉色，柔和奶白或水光粉背景，标题使用深色或柔和玫瑰粉，卖点pill和底部条使用浅粉或白色，整体清爽轻盈感";
 }
 
-function buildMainImagePrompt(brief: Brief): string {
+function platformName(platform: Platform): string {
+  if (platform === "taobao") return "淘宝";
+  if (platform === "douyin") return "抖音电商";
+  if (platform === "xiaohongshu") return "小红书";
+  return "拼多多";
+}
+
+function buildMainImagePrompt(
+  brief: Brief,
+  options: { outputUse?: OutputUse; outputMode?: OutputMode; platform?: Platform } = {},
+): string {
   const type = brief.product_type ?? "护肤品";
   const visualStyle = brief.visual_style ?? "";
   const points = (brief.selling_points ?? []).slice(0, 3).map((p) =>
@@ -145,18 +168,73 @@ function buildMainImagePrompt(brief: Brief): string {
   const subtitleLine = subtitle || "";
   const bulletsText = points.length > 0 ? points.join(" / ") : "高品质";
   const visualTheme = inferVisualTheme(type, visualStyle);
+  const outputUse = options.outputUse ?? "traffic";
+  const outputMode = options.outputMode ?? "copy";
+  const targetPlatform = platformName(options.platform ?? "pdd");
+
+  const productFidelity =
+    `商品主体：保持原图包装形状、颜色、品牌logo、瓶身结构尽量不变，清晰完整，不明显变形，不裁切，不改成其他SKU。`;
+  const riskGuard =
+    `合规边界：不要生成"官方正品"、"正品保证"、"品质保证"、"放心购买"、"敏感肌可用"、"医美"、"美白"、"祛斑"、"祛痘"、"临床认证"等未经商家明确授权或证明的背书/功效词；不要生成虚构认证、虚构销量、虚构奖章。`;
+
+  if (outputMode === "visual") {
+    return (
+      `${targetPlatform}电商运营视觉底图，800x800。业务目标：为后续运营文案提供高质量视觉承载。` +
+      `${productFidelity}` +
+      `产品占画面45%-60%，主体突出。` +
+      `根据商品调性生成高质感商业背景：${visualTheme}。` +
+      `画面可用于后续叠加标题和卖点，所以左侧或上方保留适度干净留白。` +
+      `禁止生成任何文字、中文、英文、数字、logo改写、角标、徽章、卖点条、底部信任条、水印。` +
+      `只生成产品、背景、光影、材质、少量合理装饰。` +
+      riskGuard
+    );
+  }
+
+  if (outputUse === "selling-point") {
+    return (
+      `${targetPlatform}电商运营图，800x800。业务目标：讲清卖点，让用户3秒内理解为什么买。` +
+      `${productFidelity}` +
+      `产品放在画面右侧或中右，占画面40%-50%。` +
+      `左侧建立清晰信息区：主标题"${titleLine}"；` +
+      (subtitleLine ? `副标题"${subtitleLine}"；` : "") +
+      `三条卖点做成信息卡片，每条包含短标题和一句解释：${bulletsText}。` +
+      `可加入2个小圆形辅助信息点，但不要堆太满。` +
+      `视觉主题：${visualTheme}。` +
+      `整体更像详情页首屏/轮播第二张卖点说明图，信息层级清楚，文字可读，重点是降低理解成本而不是单纯好看。` +
+      `不要使用右上角"官方正品"角标，也不要使用底部"官方正品/品质保证/放心购买"信任条。` +
+      `可以用中性的小图标辅助解释卖点，但不要写未经验证的强背书。` +
+      `禁止真人、人脸、改变商品包装结构。` +
+      riskGuard
+    );
+  }
+
+  if (outputUse === "scene") {
+    return (
+      `${targetPlatform}电商运营图，800x800。业务目标：增强信任，提高商品质感和使用代入感。` +
+      `${productFidelity}` +
+      `产品为主角，占画面45%-55%，自然放置在适合${type}的真实使用场景中。` +
+      `背景和道具必须服务于商品卖点，不要无关杂物。` +
+      `文案极少，只允许一个短标题"${titleLine}"和最多2个轻量卖点标签；不要底部信任条，不要大面积促销文字。` +
+      `视觉主题：${visualTheme}。` +
+      `画面要像详情页氛围图/品牌质感图，清爽可信，有生活感但不出现真人、人脸、手部。核心是让用户觉得商品真实、专业、值得购买。` +
+      `不要使用右上角"官方正品"角标，也不要使用底部信任条。` +
+      `禁止过度夸张活动促销、改变商品包装结构。` +
+      riskGuard
+    );
+  }
 
   return (
     // 1. 平台与图类型
-    `拼多多800x800商品主图，目标提升点击率和成交率，适合手机端快速理解。` +
+    `${targetPlatform}电商运营图，800x800。业务目标：提升点击，让用户在搜索/推荐/活动入口第一眼停下来。` +
 
     // 2. 商品主体保真
-    `商品主体：保持原图包装形状、颜色、品牌logo、瓶身结构完全不变，放在画面右侧，占画面高度45%-50%，清晰完整，不变形，不裁切，不改色。` +
+    `${productFidelity}` +
+    `产品放在画面右侧，占画面高度45%-55%，清晰完整，视觉权重强。` +
 
     // 3. 主图版式结构
     `版式：左侧大标题"${titleLine}"，粗体；` +
     (subtitleLine ? `副标题"${subtitleLine}"在大标题下方，字号略小；` : "") +
-    `左下三条卖点pill：✓${bulletsText.split(" / ").join(" ✓")}；右上角官方正品角标；底部信任条文字"官方正品 · 品质保证 · 放心购买"。` +
+    `左下三条卖点pill：✓${bulletsText.split(" / ").join(" ✓")}；可以有视觉装饰角标，但不要写"官方正品"、"正品保证"、"品质保证"、"放心购买"；不要使用底部信任条。` +
 
     // 4. 视觉主题自适应
     `视觉主题：${visualTheme}。` +
@@ -165,17 +243,21 @@ function buildMainImagePrompt(brief: Brief): string {
     `标题颜色、卖点pill背景色和文字色、官方正品角标颜色、底部信任条颜色，全部跟随上述视觉主题，不要单独使用红色。` +
 
     // 5. 电商感要求
-    `整体是拼多多官方店铺商品主图，信息清晰、点击感强，信息密度适中，不要大面积留白，不要高级杂志大片感，也不要廉价促销牛皮癣感。` +
+    `整体是高点击电商运营图，信息清晰、点击感强，信息密度适中。重点是第一眼抓住注意力，同时保持商品可信，不要大面积留白，不要高级杂志大片感，也不要廉价促销牛皮癣感。` +
 
     // 6. 禁止事项
-    `禁止：真人、人脸、虚构销量评价成分认证、原图没有的文字水印、改变商品包装颜色或结构。`
+    `禁止：真人、人脸、虚构销量评价成分认证、原图没有的文字水印、改变商品包装颜色或结构。` +
+    riskGuard
   );
 }
 
 export async function POST(req: Request): Promise<Response> {
   const t0 = Date.now();
   try {
-    // Dev mode: skip Replicate entirely, return a placeholder image.
+    const proxied = await proxyToStableApi(req, "/api/generate");
+    if (proxied) return proxied;
+
+    // Dev mode: skip external image APIs entirely, return a placeholder image.
     if (process.env.LIGHTPIC_DEV_MODE === "1") {
       const placeholder = DEV_PLACEHOLDERS[_devCounter % DEV_PLACEHOLDERS.length];
       _devCounter++;
@@ -185,14 +267,19 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     // ── Provider selection ──────────────────────────────────────────────────
-    const imageProvider = process.env.IMAGE_PROVIDER ?? "replicate";
+    const imageProvider = process.env.IMAGE_PROVIDER ?? "openai";
+    const openaiKey = process.env.OPENAI_API_KEY;
+    const openaiModel = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-2";
+    const openaiEndpoint = process.env.OPENAI_BASE_URL
+      ? `${process.env.OPENAI_BASE_URL.replace(/\/$/, "")}/v1/images/edits`
+      : OPENAI_IMAGE_URL;
     const shiyunKey = process.env.SHIYUN_API_KEY;
     const shiyunModel = process.env.SHIYUN_IMAGE_MODEL ?? "gpt-image-2";
     const shiyunEndpoint = process.env.SHIYUN_BASE_URL
       ? `${process.env.SHIYUN_BASE_URL.replace(/\/$/, "")}/v1/images/edits`
       : SHIYUN_IMAGE_URL;
 
-    console.log("[generate] provider:", imageProvider, "| model:", shiyunModel, "| endpoint:", shiyunEndpoint);
+    console.log("[generate] provider:", imageProvider);
 
     // ── Parse request body (shared by both providers) ────────────────────────
     let body: unknown;
@@ -201,10 +288,13 @@ export async function POST(req: Request): Promise<Response> {
     } catch (e) {
       return jsonError(400, "Invalid JSON body", { detail: String(e) });
     }
-    const { imageDataUrl, prompt: rawPrompt, brief, nonce } = (body ?? {}) as {
+    const { imageDataUrl, prompt: rawPrompt, brief, outputUse, outputMode, platform, nonce } = (body ?? {}) as {
       imageDataUrl?: unknown;
       prompt?: unknown;
       brief?: Brief;
+      outputUse?: unknown;
+      outputMode?: unknown;
+      platform?: unknown;
       nonce?: unknown;
     };
 
@@ -218,7 +308,17 @@ export async function POST(req: Request): Promise<Response> {
     // brief takes priority; rawPrompt is the fallback for direct callers
     const basePrompt =
       brief && typeof brief === "object"
-        ? buildMainImagePrompt(brief)
+        ? buildMainImagePrompt(brief, {
+            outputUse:
+              outputUse === "selling-point" || outputUse === "scene" || outputUse === "traffic"
+                ? outputUse
+                : "traffic",
+            outputMode: outputMode === "visual" || outputMode === "copy" ? outputMode : "copy",
+            platform:
+              platform === "taobao" || platform === "douyin" || platform === "xiaohongshu" || platform === "pdd"
+                ? platform
+                : "pdd",
+          })
         : typeof rawPrompt === "string" && rawPrompt.trim()
           ? rawPrompt.trim()
           : null;
@@ -238,6 +338,99 @@ export async function POST(req: Request): Promise<Response> {
       input_image: `<${imgMatch?.[1] ?? "image"}, ~${(approxBytes / 1024).toFixed(0)}KB>`,
       prompt_chars: prompt.length,
     });
+
+    // ── OpenAI Images branch ────────────────────────────────────────────────
+    if (imageProvider === "openai") {
+      if (!openaiKey) {
+        return jsonError(500, "Server is missing OPENAI_API_KEY");
+      }
+      console.log("[generate] using openai | model:", openaiModel, "| endpoint:", openaiEndpoint);
+
+      const mimeMatch = imageDataUrl.match(/^data:(image\/[a-z+]+);base64,/);
+      const mime = mimeMatch?.[1] ?? "image/png";
+      const base64 = imageDataUrl.slice(mimeMatch?.[0].length ?? 0);
+      const buffer = Buffer.from(base64, "base64");
+      const blob = new Blob([buffer], { type: mime });
+
+      const form = new FormData();
+      form.append("image[]", blob, "product.png");
+      form.append("prompt", prompt);
+      form.append("model", openaiModel);
+      form.append("n", "1");
+      form.append("size", "1024x1024");
+
+      console.log("[generate] openai image size:", buffer.length, "bytes | mime:", mime);
+
+      let openaiRes: Response;
+      try {
+        openaiRes = await fetchWithRetry(
+          openaiEndpoint,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${openaiKey}` },
+            body: form,
+          },
+          OPENAI_IMAGE_TIMEOUT_MS,
+          0,
+          "openai-image-edit",
+        );
+      } catch (e) {
+        return openAiErrorResponse("generate", 502, e);
+      }
+
+      const openaiData = await safeJson(openaiRes, "openai-image-edit");
+      if (typeof openaiData === "object" && openaiData !== null && "__nonJson" in openaiData) {
+        return jsonError(502, `OpenAI returned non-JSON (HTTP ${openaiRes.status})`, {
+          snippet: (openaiData as { __nonJson: string }).__nonJson,
+        });
+      }
+      if (!openaiRes.ok) {
+        const errData = openaiData as {
+          error?: { code?: string; message?: string };
+          message?: string;
+        };
+        const msg = errData?.error?.message ?? errData?.message ?? `OpenAI HTTP ${openaiRes.status}`;
+        console.error("[generate] openai error:", msg);
+        if (
+          errData?.error?.code === "unsupported_country_region_territory" ||
+          isUnsupportedRegionError(msg)
+        ) {
+          return openAiErrorResponse("generate", 503, openaiData);
+        }
+        return jsonError(502, msg, {
+          provider: "openai",
+          model: openaiModel,
+          endpoint: openaiEndpoint,
+          fallbackUsed: false,
+          finalProvider: "openai",
+        });
+      }
+
+      const imageList = (openaiData as { data?: { url?: string; b64_json?: string }[] }).data;
+      const item = imageList?.[0];
+      const imageUrl = item?.url ?? (item?.b64_json ? `data:image/png;base64,${item.b64_json}` : undefined);
+      if (!imageUrl) {
+        return jsonError(502, "OpenAI returned no image", {
+          provider: "openai",
+          model: openaiModel,
+          endpoint: openaiEndpoint,
+          fallbackUsed: false,
+          finalProvider: "openai",
+        });
+      }
+
+      console.log("[generate] openai succeeded in", Date.now() - t0, "ms | requestId:", requestId, "| imageUrl prefix:", imageUrl.slice(0, 40));
+      return jsonResponse(200, {
+        imageUrl,
+        metadata: {
+          provider: "openai",
+          model: openaiModel,
+          endpoint: openaiEndpoint,
+          fallbackUsed: false,
+          finalProvider: "openai",
+        },
+      });
+    }
 
     // ── Shiyun gpt-image-2 branch ────────────────────────────────────────────
     if (imageProvider === "shiyun") {
