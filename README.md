@@ -97,5 +97,5 @@ Secrets are kept only in `.env.local`, Cloudflare secrets, or Vercel environment
 ## Current Limits
 
 - Results still require human review for product structure, logo text, packaging text, and claims.
-- `¥1.99` is still a validation offer, not a complete payment system.
+- `¥3.99` is still a validation offer, not a complete payment system.
 - This is an MVP trial flow, not yet a full quota, billing, and user-account product.
