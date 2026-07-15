@@ -1,0 +1,32 @@
+name: Documentation request
+description: Suggest a README or docs improvement
+title: "docs: "
+labels:
+  - documentation
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for missing, unclear, or outdated documentation. Product bugs should use the bug report template instead.
+  - type: textarea
+    id: area
+    attributes:
+      label: Documentation area
+      description: Which page, section, or setup step needs work?
+      placeholder: README Local Development, deployment notes, env variables, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is unclear or missing?
+      description: Describe the gap from a reader's perspective.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: Share the wording, example, or context that would help.
+    validations:
+      required: false
